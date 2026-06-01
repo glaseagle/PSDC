@@ -1,0 +1,14 @@
+[project]
+description = "Save ComfyUI image batches as PSDs with native Photoshop layer masks"
+license = {file = "LICENSE"}
+name = "D2-SavePSD-ComfyUI-NativeMasks"
+version = "0.12.0"
+
+[project.urls]
+Repository = "https://github.com/glaseagle/D2-SavePSD-ComfyUI-NativeMasks"
+Upstream = "https://github.com/da2el-ai/D2-SavePSD-ComfyUI"
+
+[tool.comfy]
+DisplayName = "D2 Save PSD Native Masks"
+Icon = ""
+PublisherId = "glaseagle"
