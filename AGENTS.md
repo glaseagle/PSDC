@@ -1,13 +1,13 @@
 # Agent Notes
 
-This repository is a ComfyUI custom node fork. The main behavior to protect is native Photoshop layer-mask export from `D2 Save PSD`, including positioned masks created by `D2 Apply Alpha Channel`.
+PSDC is a ComfyUI custom node fork. The main behavior to protect is native Photoshop layer-mask export from `D2 Save PSD`, including positioned masks created by `D2 Apply Alpha Channel`.
 
 ## Expected Layout
 
 Install the repo under:
 
 ```text
-ComfyUI/custom_nodes/D2-SavePSD-ComfyUI-NativeMasks
+ComfyUI/custom_nodes/PSDC
 ```
 
 During local development in an existing upstream checkout, the folder name may still be:
@@ -24,8 +24,8 @@ From the ComfyUI folder:
 
 ```powershell
 cd custom_nodes
-git clone https://github.com/glaseagle/D2-SavePSD-ComfyUI-NativeMasks.git D2-SavePSD-ComfyUI-NativeMasks
-cd D2-SavePSD-ComfyUI-NativeMasks
+git clone https://github.com/glaseagle/PSDC.git PSDC
+cd PSDC
 ..\..\.venv\Scripts\python.exe install.py
 ```
 

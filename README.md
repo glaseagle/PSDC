@@ -1,9 +1,11 @@
-# D2 Save PSD Native Masks for ComfyUI
+# PSDC
 
 ![ComfyUI custom node](https://img.shields.io/badge/ComfyUI-custom%20node-46a2ff)
 ![Photoshop PSD](https://img.shields.io/badge/Photoshop-PSD%20layers-31a8ff)
 ![Native masks](https://img.shields.io/badge/masks-native%20layer%20masks-44cc88)
 ![License MIT](https://img.shields.io/badge/license-MIT-black)
+
+PSDC is a ComfyUI custom node pack for saving image batches as layered Photoshop PSD files with native layer masks.
 
 Save ComfyUI image batches as real layered PSD files. This fork keeps the lean D2 Save PSD node set and upgrades the Photoshop handoff: alpha channels are written as native layer masks on their matching pixel layers.
 
@@ -44,7 +46,7 @@ https://github.com/da2el-ai/D2-SavePSD-ComfyUI
 Fork repository:
 
 ```text
-https://github.com/glaseagle/D2-SavePSD-ComfyUI-NativeMasks
+https://github.com/glaseagle/PSDC
 ```
 
 ## Install
@@ -53,8 +55,8 @@ From your ComfyUI folder:
 
 ```powershell
 cd custom_nodes
-git clone https://github.com/glaseagle/D2-SavePSD-ComfyUI-NativeMasks.git D2-SavePSD-ComfyUI-NativeMasks
-cd D2-SavePSD-ComfyUI-NativeMasks
+git clone https://github.com/glaseagle/PSDC.git PSDC
+cd PSDC
 ..\..\.venv\Scripts\python.exe install.py
 ```
 

@@ -1,6 +1,6 @@
 """
 @author: glaseagle
-@title: D2 Save PSD Native Masks
+@title: PSDC
 @description: Save PSD files with native Photoshop layer masks.
 """
 from .nodes import NODE_CLASS_MAPPINGS
