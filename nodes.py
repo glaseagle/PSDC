@@ -1,77 +1,57 @@
-import torch
+import logging
 import os
-import numpy as np
+
 import folder_paths
+import numpy as np
+import torch
 from PIL import Image
 from psd_tools import PSDImage
-from io import BytesIO
-import logging
 
-"""
-汎用ヘルパー関数
-"""
+
+MAX_RESOLUTION = 16384
+
+
+def tensor_to_uint8_array(tensor):
+    if torch.is_tensor(tensor):
+        array = tensor.detach().cpu().numpy()
+    else:
+        array = tensor
+
+    if array.dtype in (np.float32, np.float64) or np.issubdtype(array.dtype, np.floating):
+        array = np.clip(array, 0.0, 1.0)
+        array = (array * 255.0).round().astype(np.uint8)
+    elif array.dtype != np.uint8:
+        array = np.clip(array, 0, 255).astype(np.uint8)
+
+    return array
+
+
 def create_pil_from_tensor(img_tensor, with_alpha=True):
-    """テンソルからPIL画像を作成する（一時ファイルを使用せず）"""
-    # numpy配列に変換
-    if torch.is_tensor(img_tensor):
-        img_array = img_tensor.cpu().numpy()
-    else:
-        img_array = img_tensor
-        
-    # 浮動小数点からuint8に変換（必要な場合）
-    if img_array.dtype == np.float32 or img_array.dtype == np.float64:
-        img_array = (img_array * 255).astype(np.uint8)
-    
-    # チャンネル数を確認
+    array = tensor_to_uint8_array(img_tensor)
+
     if with_alpha:
-        # RGBAとして扱う
-        if img_array.shape[2] == 3:  # RGBの場合はアルファを追加
-            alpha = np.full((img_array.shape[0], img_array.shape[1], 1), 255, dtype=np.uint8)
-            img_array = np.concatenate((img_array, alpha), axis=2)
-        pil_img = Image.fromarray(img_array, 'RGBA')
-    else:
-        # RGBのみとして扱う
-        if img_array.shape[2] == 4:  # RGBAの場合はアルファを除去
-            img_array = img_array[:, :, :3]
-        pil_img = Image.fromarray(img_array, 'RGB')
-        
-    return pil_img
+        if array.shape[2] == 3:
+            alpha = np.full((array.shape[0], array.shape[1], 1), 255, dtype=np.uint8)
+            array = np.concatenate((array, alpha), axis=2)
+        return Image.fromarray(array[:, :, :4], "RGBA")
+
+    if array.shape[2] == 4:
+        array = array[:, :, :3]
+    return Image.fromarray(array, "RGB")
 
 
 def extract_alpha_mask(img_tensor):
-    """
-    画像からアルファチャンネルを抽出し、マスクとアルファを除去した画像を返す
-    
-    戻り値:
-    - alpha_mask: PIL Imageのグレースケールマスク
-    - rgb_image: アルファチャンネルを除去したPIL Image (RGB)
-    """
-    if torch.is_tensor(img_tensor):
-        img_array = img_tensor.cpu().numpy()
-    else:
-        img_array = img_tensor
-        
-    # 浮動小数点からuint8に変換（必要な場合）
-    if img_array.dtype == np.float32 or img_array.dtype == np.float64:
-        img_array = (img_array * 255).astype(np.uint8)
-    
-    # アルファチャンネルがあるか確認
-    if img_array.shape[2] == 4:
-        # アルファチャンネルを取得
-        alpha = img_array[:, :, 3]
-        # RGB画像を取得（アルファを除去）
-        rgb_array = img_array[:, :, :3]
-        # PIL画像として返す
-        alpha_mask = Image.fromarray(alpha, 'L')
-        rgb_image = Image.fromarray(rgb_array, 'RGB')
+    array = tensor_to_uint8_array(img_tensor)
+
+    if array.shape[2] == 4:
+        alpha_mask = Image.fromarray(array[:, :, 3], "L")
+        rgb_image = Image.fromarray(array[:, :, :3], "RGB")
         return alpha_mask, rgb_image
-    else:
-        # アルファがない場合は白一色のマスクを返す
-        height, width = img_array.shape[:2]
-        alpha_mask = Image.new('L', (width, height), 255)
-        # 元の画像はそのままRGBとして返す
-        rgb_image = Image.fromarray(img_array, 'RGB')
-        return alpha_mask, rgb_image
+
+    height, width = array.shape[:2]
+    alpha_mask = Image.new("L", (width, height), 255)
+    rgb_image = Image.fromarray(array[:, :, :3], "RGB")
+    return alpha_mask, rgb_image
 
 
 def append_pixel_layer_with_mask(psd, rgb_image, alpha_mask, layer_name, has_alpha):
@@ -81,112 +61,137 @@ def append_pixel_layer_with_mask(psd, rgb_image, alpha_mask, layer_name, has_alp
     return rgb_layer
 
 
-"""
-D2 Apply Alpha Channel
-アルファチャンネル付き画像を作成
-"""
+def match_batch_size(tensor, batch_size):
+    if tensor.shape[0] > batch_size:
+        return tensor[:batch_size]
+    if tensor.shape[0] < batch_size:
+        repeat_shape = (batch_size - tensor.shape[0],) + (1,) * (tensor.dim() - 1)
+        return torch.cat((tensor, tensor[-1:].repeat(repeat_shape)), dim=0)
+    return tensor
+
+
+def normalize_mask_batch(mask, batch_size):
+    if len(mask.shape) == 2:
+        mask = mask.unsqueeze(0)
+    elif len(mask.shape) == 4:
+        if mask.shape[-1] == 1:
+            mask = mask.squeeze(-1)
+        elif mask.shape[1] == 1:
+            mask = mask.squeeze(1)
+    elif len(mask.shape) == 5:
+        mask = mask.squeeze(1).squeeze(1)
+
+    return match_batch_size(mask, batch_size)
+
+
+def resize_mask_to_image(mask, image):
+    if mask.shape[1:3] != image.shape[1:3]:
+        mask = torch.nn.functional.interpolate(
+            mask.unsqueeze(1).float(),
+            size=(image.shape[1], image.shape[2]),
+            mode="bicubic",
+            align_corners=False,
+        ).squeeze(1)
+
+    return mask.clamp(0.0, 1.0)
+
+
+def normalize_positions(value, batch_size, offset):
+    if isinstance(value, list):
+        positions = value
+    else:
+        positions = [value]
+
+    if len(positions) < batch_size:
+        positions = positions + [positions[-1]] * (batch_size - len(positions))
+
+    return [int(position + offset) for position in positions[:batch_size]]
+
+
 class D2_ApplyAlphaChannel:
-    def __init__(self):
-        pass
-    
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "image": ("IMAGE",),
                 "mask": ("MASK",),
-                "invert_mask": ("BOOLEAN", {"default": False})
-            }
+                "invert_mask": ("BOOLEAN", {"default": False}),
+                "x": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1}),
+                "y": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1}),
+                "offset_x": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1}),
+                "offset_y": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1}),
+            },
+            "optional": {
+                "destination": ("IMAGE",),
+            },
         }
-    
+
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "apply_alpha_channel"
     CATEGORY = "D2/Image"
-    
-    def apply_alpha_channel(self, image, mask, invert_mask=False):
-        # バッチ次元を処理 - 単一画像の場合、バッチ次元を追加
-        batch_size = image.shape[0]
-        
-        # 画像の寸法を取得
-        _, height, width, channels = image.shape
-        
-        # マスクの形状を確認し、適切に処理
-        # print(f"マスク形状: {mask.shape}, 次元数: {len(mask.shape)}") # デバッグ用出力
 
-        # マスクの形状に応じて処理を分岐
-        if len(mask.shape) == 2:  # 単一マスク (H, W)
-            # 2次元マスクの場合、バッチとして拡張
-            processed_mask = mask.unsqueeze(0).expand(batch_size, height, width)
-            
-        elif len(mask.shape) == 3:
-            if mask.shape[0] == batch_size:  # バッチマスク (B, H, W)
-                # すでにバッチ化されている場合はそのまま使用
-                processed_mask = mask
-            else:  # 単一マスク + チャンネル次元 (1, H, W)
-                # バッチ次元に拡張
-                processed_mask = mask.expand(batch_size, height, width)
-                
-        elif len(mask.shape) == 4:  # バッチ+チャンネル次元 (B, 1, H, W)
-            # チャンネル次元をスクイーズ
-            processed_mask = mask.squeeze(1)
-            
-        elif len(mask.shape) == 5:  # 複雑なテンソル形状 (B, 1, 1, H, W)
-            # 余分な次元をスクイーズ
-            processed_mask = mask.squeeze(1).squeeze(1)
-            
-        else:
-            # 対応できない場合はリサイズして強制的に形状を合わせる
-            logging.warning(f"Warning: Unexpected mask shape {mask.shape}. Attempting to resize")
-            # 一度平坦化してからリサイズ
-            processed_mask = torch.nn.functional.interpolate(
-                mask.reshape(batch_size, 1, -1, width).float(), # .float() を追加して型エラーを回避
-                size=(height, width),
-                mode='bilinear'
-            ).squeeze(1)
-        
-        # リサイズしてサイズを画像に合わせる（必要な場合）
-        if processed_mask.shape[1] != height or processed_mask.shape[2] != width:
-            # マスクのサイズが0の場合は、新しいマスクを作成する
-            if processed_mask.shape[1] == 0 or processed_mask.shape[2] == 0:
-                # # logging.warning(f"マスクのサイズが0です。新しいマスクを作成します: {processed_mask.shape}")
-                # # デフォルトでは完全に不透明なマスク（値が1.0）を作成
-                # processed_mask = torch.ones((batch_size, height, width), 
-                #                            dtype=torch.float32, 
-                #                            device=processed_mask.device)
-                return (image,)
-            else:
-                # 通常のリサイズ処理
-                processed_mask = torch.nn.functional.interpolate(
-                    processed_mask.unsqueeze(1).float(),
-                    size=(height, width),
-                    mode='bilinear'
-                ).squeeze(1)
-        
-        # 要求された場合はマスクを反転（1.0が透明に、0.0が不透明になる）
+    def apply_alpha_channel(self, image, mask, invert_mask=False, x=0, y=0, offset_x=0, offset_y=0, destination=None):
+        source = image
+        batch_size = source.shape[0]
+        mask = normalize_mask_batch(mask, batch_size)
+        processed_mask = resize_mask_to_image(mask, source)
+
         if invert_mask:
             processed_mask = 1.0 - processed_mask
-        
-        # RGBAチャンネルを持つ出力テンソルを作成
-        output = torch.zeros((batch_size, height, width, 4), dtype=image.dtype, device=image.device)
-        
-        # 入力画像からRGBチャンネルをコピー
-        output[..., :3] = image[..., :3]
-        
-        # 処理済みマスクをアルファチャンネルとして適用
-        output[..., 3] = processed_mask
-        
+
+        if destination is None:
+            output = torch.zeros(
+                (batch_size, source.shape[1], source.shape[2], 4),
+                dtype=source.dtype,
+                device=source.device,
+            )
+            output[..., :3] = source[..., :3]
+            output[..., 3] = processed_mask
+            return (output,)
+
+        destination = match_batch_size(destination, batch_size)
+        canvas_height = destination.shape[1]
+        canvas_width = destination.shape[2]
+        x_positions = normalize_positions(x, batch_size, offset_x)
+        y_positions = normalize_positions(y, batch_size, offset_y)
+
+        output = torch.zeros(
+            (batch_size, canvas_height, canvas_width, 4),
+            dtype=source.dtype,
+            device=source.device,
+        )
+
+        for index in range(batch_size):
+            source_x1 = max(0, -x_positions[index])
+            source_y1 = max(0, -y_positions[index])
+            dest_x1 = max(0, x_positions[index])
+            dest_y1 = max(0, y_positions[index])
+
+            visible_width = min(source.shape[2] - source_x1, canvas_width - dest_x1)
+            visible_height = min(source.shape[1] - source_y1, canvas_height - dest_y1)
+
+            if visible_width <= 0 or visible_height <= 0:
+                continue
+
+            source_x2 = source_x1 + visible_width
+            source_y2 = source_y1 + visible_height
+            dest_x2 = dest_x1 + visible_width
+            dest_y2 = dest_y1 + visible_height
+
+            output[index, dest_y1:dest_y2, dest_x1:dest_x2, :3] = source[
+                index, source_y1:source_y2, source_x1:source_x2, :3
+            ]
+            output[index, dest_y1:dest_y2, dest_x1:dest_x2, 3] = processed_mask[
+                index, source_y1:source_y2, source_x1:source_x2
+            ]
+
         return (output,)
 
 
-"""
-D2 Save PSD
-透明度を持つRGBA画像をPSDファイルとして保存するためのComfyUIカスタムノード
-バッチ内の全画像を1つのPSDファイルの複数レイヤーとして保存
-"""
 class D2_SavePSD:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
-    
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -195,101 +200,67 @@ class D2_SavePSD:
                 "filename_prefix": ("STRING", {"default": "ComfyUI"}),
                 "file_mode": (["multi_file", "single_file"],),
                 "alpha_name": ("STRING", {"default": "_mask_"}),
-                "alpha_name_mode": (["simple", "suffix"],)
+                "alpha_name_mode": (["simple", "suffix"],),
             }
         }
-    
+
     RETURN_TYPES = ()
     FUNCTION = "save_rgba_psd"
     OUTPUT_NODE = True
     CATEGORY = "D2/Image"
-    
-    def save_rgba_psd(self, images, filename_prefix, file_mode, alpha_name="_mask_", alpha_name_mode="simple"):
-        # ファイル名とパスを生成
-        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
-            filename_prefix, self.output_dir, images[0].shape[1], images[0].shape[0])
 
-        # # ディレクトリが存在しない場合は作成
-        # os.makedirs(full_output_folder, exist_ok=True)
-        
-        # 画像の寸法を取得
+    def save_rgba_psd(self, images, filename_prefix, file_mode, alpha_name="_mask_", alpha_name_mode="simple"):
+        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
+            filename_prefix,
+            self.output_dir,
+            images[0].shape[1],
+            images[0].shape[0],
+        )
+
         batch_size, height, width, channels = images.shape
-        
+
         try:
             if file_mode == "single_file":
-                # 単一ファイルモード: すべての画像を1つのPSDファイルに保存
-                # 新しい空のPSDを作成
-                psd = PSDImage.new('RGB', (width, height))
-                
-                # 逆順でレイヤーを処理（最後の画像が一番上のレイヤーになる）
-                # この方法では一時ファイルを使用せずにメモリ内で処理
+                psd = PSDImage.new("RGB", (width, height))
+
                 for batch_number, img_tensor in enumerate(reversed(images)):
-                    layer_name = f"Layer {batch_number+1}"
-                    
-                    # アルファマスクとRGB画像を取得
+                    layer_name = f"Layer {batch_number + 1}"
                     alpha_mask, rgb_image = extract_alpha_mask(img_tensor)
-                    
                     append_pixel_layer_with_mask(psd, rgb_image, alpha_mask, layer_name, channels == 4)
 
-                # 保存先のファイルパスを生成
                 filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
                 file = f"{filename_with_batch_num}_{counter:05}_.psd"
-
-                # PSDを保存
                 psd.save(os.path.join(full_output_folder, file))
-                
-                logging.info(f"PSD file was successfully saved: {file}")
-            
-            else:  # file_mode == "multi_file"
-                # 複数ファイルモード: 各画像を個別のPSDファイルに保存
+                logging.info("PSD file was successfully saved: %s", file)
+
+            else:
                 for batch_number, img_tensor in enumerate(images):
-                    # 新しい空のPSDを作成
-                    psd = PSDImage.new('RGB', (width, height))
-                    
-                    # アルファマスクとRGB画像を取得
+                    psd = PSDImage.new("RGB", (width, height))
                     alpha_mask, rgb_image = extract_alpha_mask(img_tensor)
-                    
-                    # レイヤー名を設定
-                    layer_name = f"Layer 1"  # 各ファイルには1つのレイヤーのみ
-                    
-                    append_pixel_layer_with_mask(psd, rgb_image, alpha_mask, layer_name, channels == 4)
-                    
-                    # 保存先のファイルパスを生成（バッチ番号を含む）
+                    append_pixel_layer_with_mask(psd, rgb_image, alpha_mask, "Layer 1", channels == 4)
+
                     filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
                     file = f"{filename_with_batch_num}_{counter:05}_{batch_number}.psd"
-                    
-                    # PSDを保存
                     psd.save(os.path.join(full_output_folder, file))
-                    
-                    logging.info(f"PSD file {batch_number+1}/{batch_size} was successfully saved: {file}")
+                    logging.info("PSD file %s/%s was successfully saved: %s", batch_number + 1, batch_size, file)
 
-            
-        except Exception as e:
-            logging.warning(f"Error occurred while saving PSD: {str(e)}")
+        except Exception as error:
+            logging.warning("Error occurred while saving PSD: %s", str(error))
             logging.warning("Saving in PNG format as an alternative...")
-            
-            # 代替方法: 個別のPNGとして保存
-            for i, img_tensor in enumerate(images):
+
+            for index, img_tensor in enumerate(images):
                 try:
                     img_pil = create_pil_from_tensor(img_tensor)
-                    alt_file = f"{filename.replace('%batch_num%', str(i))}_{counter:05}_.png"
+                    alt_file = f"{filename.replace('%batch_num%', str(index))}_{counter:05}_.png"
                     alt_path = os.path.join(full_output_folder, alt_file)
                     img_pil.save(alt_path)
-                except Exception as alt_e:
-                    logging.warning(f"Failed to save as PNG as well: {str(alt_e)}")
+                except Exception as alt_error:
+                    logging.warning("Failed to save as PNG as well: %s", str(alt_error))
 
-        # 空の辞書を返して NoneType エラーを回避
         return {}
 
 
-"""
-D2 Extract Alpha
-画像からアルファチャンネルをマスクとして抽出するノード
-"""
 class D2_ExtractAlpha:
-    def __init__(self):
-        pass
-    
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -297,65 +268,39 @@ class D2_ExtractAlpha:
                 "image": ("IMAGE",),
             }
         }
-    
+
     RETURN_TYPES = ("MASK", "IMAGE")
     FUNCTION = "extract_alpha"
     CATEGORY = "D2/Image"
 
     def extract_alpha(self, image):
-        # バッチ次元を処理
-        batch_size = image.shape[0]
-        
-        # バッチ内の各画像に対してアルファチャンネルを抽出
         alpha_tensors = []
-        rgb_alpha_tensors = []
-        
-        for i in range(batch_size):
-            # 現在の画像
-            current_image = image[i]
+        rgba_tensors = []
 
-            # 汎用関数を使用してアルファマスクとRGB画像を取得
-            alpha_pil, rgb_pil = extract_alpha_mask(current_image)
-
-            # --- アルファマスク処理 ---
+        for img_tensor in image:
+            alpha_pil, rgb_pil = extract_alpha_mask(img_tensor)
             alpha_np = np.array(alpha_pil)
-            # PIL -> NumPy -> Tensor (元の向きを維持)
-            alpha_tensor = torch.from_numpy(alpha_np).float() / 255.0 # 形状: (高さ, 幅)
-
-            # --- RGB画像処理 ---
             rgb_np = np.array(rgb_pil)
-            # PIL -> NumPy -> Tensor (元の向きを維持)
-            rgb_tensor = torch.from_numpy(rgb_np).float() / 255.0 # 形状: (高さ, 幅, 3)
 
-            # 2番目の出力 (IMAGE型) 用のRGBAテンソルを作成
-            if rgb_tensor.shape[-1] == 3:
-                height, width, _ = rgb_tensor.shape
-                rgb_alpha_tensor = torch.ones((height, width, 4), # アルファを1で初期化
-                                             dtype=rgb_tensor.dtype,
-                                             device=rgb_tensor.device)
-                rgb_alpha_tensor[..., :3] = rgb_tensor # RGBチャンネルをコピー
-            elif rgb_tensor.shape[-1] == 4: # extract_alpha_maskが正しく動作していれば、これは起こらないはずです
-                # もし入力が何らかの理由でRGBAだった場合、そのまま使用しますが、アルファが不透明であることを確認しますか？
-                # それとも入力を信頼しますか？現時点では入力を信頼します。
-                logging.warning("Warning: rgb_tensor derived from extract_alpha_mask unexpectedly had 4 channels. Using it as is.")
-                rgb_alpha_tensor = rgb_tensor
-            else:
-                raise ValueError(f"Unexpected number of channels in rgb_tensor from extract_alpha_mask: {rgb_tensor.shape[-1]}")
-            
-            # リストに追加
+            alpha_tensor = torch.from_numpy(alpha_np).float() / 255.0
+            rgb_tensor = torch.from_numpy(rgb_np).float() / 255.0
+
+            rgba_tensor = torch.ones(
+                (rgb_tensor.shape[0], rgb_tensor.shape[1], 4),
+                dtype=rgb_tensor.dtype,
+                device=rgb_tensor.device,
+            )
+            rgba_tensor[..., :3] = rgb_tensor
+            rgba_tensor[..., 3] = alpha_tensor
+
             alpha_tensors.append(alpha_tensor)
-            rgb_alpha_tensors.append(rgb_alpha_tensor)
-        
-        # テンソルをスタックしてバッチ次元を復元
-        stacked_alpha = torch.stack(alpha_tensors) # 形状: (バッチ, 高さ, 幅)
-        stacked_rgb_alpha = torch.stack(rgb_alpha_tensors) # 形状: (バッチ, 高さ, 幅, 4)
+            rgba_tensors.append(rgba_tensor)
 
-        # MASKテンソルとIMAGEテンソルを返す
-        return (stacked_alpha, stacked_rgb_alpha)
+        return (torch.stack(alpha_tensors), torch.stack(rgba_tensors))
 
 
 NODE_CLASS_MAPPINGS = {
     "D2 Apply Alpha Channel": D2_ApplyAlphaChannel,
     "D2 Save PSD": D2_SavePSD,
-    "D2 Extract Alpha": D2_ExtractAlpha
+    "D2 Extract Alpha": D2_ExtractAlpha,
 }

@@ -17,7 +17,8 @@ The original `D2 Save PSD` node exported alpha channels as separate hidden pixel
 flowchart LR
     A["ComfyUI IMAGE"] --> C["D2 Apply Alpha Channel"]
     B["ComfyUI MASK"] --> C
-    C --> D["RGBA image"]
+    Z["Optional destination canvas"] --> C
+    C --> D["Positioned RGBA layer"]
     D --> E["D2 Save PSD"]
     E --> F["Photoshop pixel layer"]
     E --> G["Native layer mask"]
@@ -82,13 +83,18 @@ Native masks are created when the incoming image has an alpha channel. The easie
 
 ### D2 Apply Alpha Channel
 
-Combines an `IMAGE` and a `MASK` into one RGBA image. Feed these RGBA outputs into `D2 Save PSD` to get Photoshop layers with masks already attached.
+Combines an `IMAGE` and a `MASK` into one RGBA image. With an optional `destination` connected, it places the image and mask onto that larger canvas using `x`, `y`, `offset_x`, and `offset_y`, filling the rest of the alpha/mask channel with black.
+
+Feed these RGBA outputs into `D2 Save PSD` to get Photoshop layers with masks already attached and positioned.
 
 Inputs:
 
 - `image`: The visible RGB layer content.
 - `mask`: The grayscale mask to attach.
 - `invert_mask`: Flips the mask before writing it into alpha.
+- `x`, `y`: Position of the smaller image and mask on the destination canvas.
+- `offset_x`, `offset_y`: Extra offsets, matching the Essentials `ImageComposite+` style.
+- `destination`: Optional larger canvas. When omitted, the output keeps the input image size.
 
 ### D2 Extract Alpha
 
@@ -102,17 +108,20 @@ Splits a D2-applied alpha channel back into:
 ```mermaid
 flowchart TB
     subgraph L1["Layer 1"]
-        I1["Load Image"] --> A1["D2 Apply Alpha Channel"]
-        M1["Load Image as Mask"] --> A1
+        I1["Small image"] --> A1["D2 Apply Alpha Channel x/y"]
+        M1["Same-size mask"] --> A1
     end
     subgraph L2["Layer 2"]
-        I2["Load Image"] --> A2["D2 Apply Alpha Channel"]
-        M2["Load Image as Mask"] --> A2
+        I2["Small image"] --> A2["D2 Apply Alpha Channel x/y"]
+        M2["Same-size mask"] --> A2
     end
     subgraph L3["Layer 3"]
-        I3["Load Image"] --> A3["D2 Apply Alpha Channel"]
-        M3["Load Image as Mask"] --> A3
+        I3["Small image"] --> A3["D2 Apply Alpha Channel x/y"]
+        M3["Same-size mask"] --> A3
     end
+    C["Large destination canvas"] --> A1
+    C --> A2
+    C --> A3
     A1 --> B["ImageBatch"]
     A2 --> B
     A3 --> B
@@ -122,12 +131,13 @@ flowchart TB
 
 For a three-layer PSD:
 
-1. Add three image inputs.
-2. Add three mask inputs.
+1. Add one larger destination canvas.
+2. Add each smaller image and its same-size mask.
 3. Pair each image and mask with `D2 Apply Alpha Channel`.
-4. Batch the three RGBA outputs with `ImageBatch`.
-5. Send the final batch into `D2 Save PSD`.
-6. Set `file_mode` to `single_file`.
+4. Set `x` and `y` on each D2 alpha node.
+5. Batch the positioned RGBA outputs with `ImageBatch`.
+6. Send the final batch into `D2 Save PSD`.
+7. Set `file_mode` to `single_file`.
 
 Photoshop should open the result as three pixel layers, each with its own layer mask.
 
@@ -157,9 +167,9 @@ The native-mask smoke test uses a three-layer workflow and confirms the generate
 
 ```text
 layer_count 3
-Layer 1 visible=True has_mask=True
-Layer 2 visible=True has_mask=True
-Layer 3 visible=True has_mask=True
+Layer 1 visible=True has_mask=True mask_bbox=(520, 430, 700, 690)
+Layer 2 visible=True has_mask=True mask_bbox=(330, 240, 610, 420)
+Layer 3 visible=True has_mask=True mask_bbox=(64, 96, 284, 256)
 ```
 
 An importable smoke workflow is included at:
