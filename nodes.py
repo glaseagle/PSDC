@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 
@@ -364,7 +365,10 @@ def create_psd_image_from_stack(psd_stack, batch_index=0):
     height = int(psd_stack["height"])
     psd = PSDImage.new("RGB", (width, height))
 
-    for layer in reversed(psd_stack["layers"]):
+    # Stack convention (matches flatten_psd_stack and PSD Load): layers[0] is the
+    # bottom layer, layers[-1] is the top. create_pixel_layer appends each new layer
+    # above the previous one, so iterate bottom-to-top to preserve z-order.
+    for layer in psd_stack["layers"]:
         rgb_image, alpha_mask, has_alpha, opacity = layer_to_pil(layer, batch_index, width, height)
         append_pixel_layer_with_mask(psd, rgb_image, alpha_mask, layer["name"], has_alpha, opacity)
 
@@ -679,34 +683,90 @@ class D2_ImageCompositePSD:
         return (image, psd_stack)
 
 
-class D2_PSDIn:
+def pil_rgba_to_tensors(pil_image):
+    array = np.array(pil_image.convert("RGBA")).astype(np.float32) / 255.0
+    rgb = torch.from_numpy(array[..., :3]).unsqueeze(0).contiguous()
+    alpha = torch.from_numpy(array[..., 3]).unsqueeze(0).contiguous()
+    return rgb, alpha
+
+
+def load_psd_file_to_stack(path):
+    psd = PSDImage.open(path)
+    width = int(psd.width)
+    height = int(psd.height)
+    viewport = (0, 0, width, height)
+
+    layers = []
+    # psd_tools iterates top-level layers bottom-to-top, matching the order
+    # flatten_psd_stack/composite expect (layers[-1] is the topmost layer).
+    for layer in psd:
+        pil_image = layer.composite(viewport=viewport)
+        if pil_image is None:
+            continue
+        rgb, alpha = pil_rgba_to_tensors(pil_image)
+        layers.append(
+            {
+                "name": layer.name or f"Layer {len(layers) + 1}",
+                "image": rgb,
+                "mask": alpha,
+                "x": [0],
+                "y": [0],
+                "opacity": 255,
+            }
+        )
+
+    if not layers:
+        # Flattened PSD with no addressable layers: keep the whole image as one layer.
+        rgb, alpha = pil_rgba_to_tensors(psd.composite(viewport=viewport))
+        layers.append(
+            {"name": "Background", "image": rgb, "mask": alpha, "x": [0], "y": [0], "opacity": 255}
+        )
+
+    return {
+        "type": PSD_STACK_TYPE,
+        "version": 1,
+        "width": width,
+        "height": height,
+        "batch_size": 1,
+        "layers": layers,
+    }
+
+
+class D2_PSDLoad:
     @classmethod
     def INPUT_TYPES(cls):
+        input_dir = folder_paths.get_input_directory()
+        files = []
+        if os.path.isdir(input_dir):
+            files = [f for f in os.listdir(input_dir) if f.lower().endswith(".psd")]
         return {
             "required": {
-                "width": ("INT", {"default": 512, "min": 1, "max": MAX_RESOLUTION, "step": 1}),
-                "height": ("INT", {"default": 512, "min": 1, "max": MAX_RESOLUTION, "step": 1}),
-                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096, "step": 1}),
-            },
-            "optional": {
-                "psd": ("PSD",),
+                "psd_file": (sorted(files),),
             },
         }
 
-    RETURN_TYPES = ("IMAGE", "PSD")
-    RETURN_NAMES = ("image", "psd")
-    FUNCTION = "execute"
+    RETURN_TYPES = ("PSD",)
+    RETURN_NAMES = ("psd",)
+    FUNCTION = "load"
     CATEGORY = "D2/Image"
 
-    def execute(self, width, height, batch_size, psd=None):
-        if is_psd_stack(psd):
-            psd_stack = copy_psd_stack(psd)
-            image = flatten_psd_stack(psd_stack)
-            return (image, psd_stack)
+    def load(self, psd_file):
+        path = folder_paths.get_annotated_filepath(psd_file)
+        return (load_psd_file_to_stack(path),)
 
-        psd_stack = create_empty_psd_stack(width, height, batch_size)
-        image = torch.zeros((batch_size, height, width, 3), dtype=torch.float32)
-        return (image, psd_stack)
+    @classmethod
+    def IS_CHANGED(cls, psd_file):
+        path = folder_paths.get_annotated_filepath(psd_file)
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            digest.update(handle.read())
+        return digest.hexdigest()
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, psd_file):
+        if not folder_paths.exists_annotated_filepath(psd_file):
+            return f"Invalid PSD file: {psd_file}"
+        return True
 
 
 class D2_ImageToPSD:
@@ -894,7 +954,7 @@ class D2_ExtractAlpha:
 NODE_CLASS_MAPPINGS = {
     "D2 Apply Alpha Channel": D2_ApplyAlphaChannel,
     "D2 Image Composite PSD": D2_ImageCompositePSD,
-    "D2 PSD In": D2_PSDIn,
+    "PSD Load": D2_PSDLoad,
     "D2 Image To PSD": D2_ImageToPSD,
     "D2 Save PSD": D2_SavePSD,
     "D2 Extract Alpha": D2_ExtractAlpha,
@@ -903,7 +963,7 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "D2 Apply Alpha Channel": "D2 Apply Alpha Channel",
     "D2 Image Composite PSD": "D2 Image Composite PSD",
-    "D2 PSD In": "D2 PSD In",
+    "PSD Load": "PSD Load",
     "D2 Image To PSD": "D2 Image To PSD",
     "D2 Save PSD": "D2 Save PSD",
     "D2 Extract Alpha": "D2 Extract Alpha",
