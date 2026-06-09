@@ -5,7 +5,7 @@
 ![Native masks](https://img.shields.io/badge/masks-native%20layer%20masks-44cc88)
 ![License MIT](https://img.shields.io/badge/license-MIT-black)
 
-PSDC is a ComfyUI custom node pack for saving image batches as layered Photoshop PSD files with native layer masks.
+PSDC is a ComfyUI custom node pack for saving image batches and non-destructive composite stacks as layered Photoshop PSD files with native layer masks.
 
 Save ComfyUI image batches as real layered PSD files. This fork keeps the lean D2 Save PSD node set and upgrades the Photoshop handoff: alpha channels are written as native layer masks on their matching pixel layers.
 
@@ -27,7 +27,7 @@ flowchart LR
     G --> F
 ```
 
-For multi-layer PSDs, batch the RGBA images before `D2 Save PSD` and set `file_mode` to `single_file`.
+For multi-layer PSDs, either batch RGBA images before `D2 Save PSD`, or use `D2 Image Composite PSD` as a drop-in-style composite node that carries a parallel `PSD` stack beside the normal flat `IMAGE`.
 
 ## Attribution
 
@@ -71,17 +71,62 @@ The installer adds:
 
 ### D2 Save PSD
 
-Writes incoming images to PSD.
+Writes incoming images or a connected `PSD` stack to a Photoshop PSD.
 
 Inputs:
 
-- `images`: An `IMAGE` or batched `IMAGE` input.
+- `images`: Optional `IMAGE` or batched `IMAGE` input. With no `PSD`, this writes one layer for a single image or one layer per batch item.
 - `filename_prefix`: Same style as ComfyUI's built-in `Save Image` node.
 - `file_mode`: `single_file` writes a batch as layers in one PSD; `multi_file` writes one PSD per image.
 - `alpha_name`: Kept for workflow compatibility. This fork writes native masks, so it does not create separate alpha layers.
 - `alpha_name_mode`: Kept for workflow compatibility.
+- `psd`: Optional `PSD` stack from `D2 Image Composite PSD`. When connected, this takes priority over the legacy RGBA-image save path.
 
 Native masks are created when the incoming image has an alpha channel. The easiest way to produce that is with `D2 Apply Alpha Channel`.
+
+### D2 Image Composite PSD
+
+Composites like the Essentials `ImageComposite+` node while also building a parallel non-destructive `PSD` stack. The image inputs are intentionally optional so the node can also convert loose images and masks into the PSD track.
+
+Use the `IMAGE` output exactly like a normal flat composite. Daisy-chain the `PSD` output into the next `D2 Image Composite PSD` node's optional `psd` input, then connect the final `PSD` output to `D2 Save PSD`.
+
+Inputs:
+
+- `destination`: Optional flat image canvas to composite onto. By itself it becomes a background PSD layer. With a connected `PSD`, it is added as a new higher image layer instead of replacing the PSD base.
+- `source`: Optional image layer to place. By itself it becomes a PSD image layer. Batched sources are expanded into separate PSD layers.
+- `x`, `y`: Position of the source on the destination canvas.
+- `offset_x`, `offset_y`: Extra offsets, matching the Essentials `ImageComposite+` style.
+- `mask`: Optional mask. With `source`, it masks the source layer. By itself it creates a transparent 0-opacity PSD layer carrying the mask. With `destination`, it does not mask the destination; it adds that transparent mask layer above the destination. Batched masks are expanded into separate PSD layers, repeating a single source image when needed.
+- `psd`: Optional carried PSD stack from a previous PSDC node. When connected, any incoming `destination`, `source`, or mask-only input is added above the existing PSD stack.
+
+Outputs:
+
+- `image`: The flat composited image, for continuing the normal ComfyUI image path.
+- `psd`: The Photoshop layer stack with the same placement and mask behavior.
+
+### D2 PSD In
+
+Starts or passes through a PSD track.
+
+Inputs:
+
+- `width`, `height`, `batch_size`: Used only when no `PSD` input is connected. The node creates an empty PSD canvas and a matching black flat image.
+- `psd`: Optional PSD track to pass through. When connected, the node outputs the flattened `IMAGE` plus the unchanged `PSD`.
+
+### D2 Image To PSD
+
+Converts a loose `IMAGE` or `IMAGE` plus `MASK` into the PSD track without setting up a full composite node.
+
+Inputs:
+
+- `image`: Image layer content. A batched image becomes one PSD layer per batch item.
+- `mask`: Optional layer mask. Batched masks become one PSD layer per mask, repeating a single image when needed.
+- `psd`: Optional existing PSD track. When connected, the image/mask layers are added above it.
+
+Outputs:
+
+- `image`: The flat result after adding the new layer or layers.
+- `psd`: The updated PSD stack.
 
 ### D2 Apply Alpha Channel
 
@@ -106,6 +151,25 @@ Splits a D2-applied alpha channel back into:
 - RGBA `IMAGE`
 
 ## Multi-Layer Masked PSD Workflow
+
+Recommended composite workflow:
+
+```mermaid
+flowchart TB
+    B["Base canvas IMAGE"] --> C1["D2 Image Composite PSD"]
+    I1["Layer image 1"] --> C1
+    M1["Mask 1"] --> C1
+    C1 -- "flat IMAGE" --> C2["D2 Image Composite PSD"]
+    C1 -- "PSD" --> C2
+    I2["Layer image 2"] --> C2
+    M2["Mask 2"] --> C2
+    C2 -- "flat IMAGE" --> Next["Continue ComfyUI image path"]
+    C2 -- "PSD" --> S["D2 Save PSD"]
+    Next --> S
+    S --> P["PSD with background plus editable layers"]
+```
+
+Legacy RGBA-batch workflow:
 
 ```mermaid
 flowchart TB
@@ -185,9 +249,10 @@ The command-line smoke workflow is documented in [AGENTS.md](AGENTS.md).
 ## Notes and Limits
 
 - Layer masks are pixel masks, not vector masks.
-- Layer names are generated as `Layer 1`, `Layer 2`, and so on by the saver.
+- `D2 Image Composite PSD` creates a `Background` layer from the first destination image when no `PSD` input is connected, then adds `Layer 1`, `Layer 2`, and so on for each composite.
 - `alpha_name` and `alpha_name_mode` remain in the node so older workflows still load, but this fork no longer emits standalone mask layers.
 - If an input image has no alpha channel, the PSD layer is written without a mask.
+- When a `PSD` stack has multiple batch entries, `single_file` saves batch 0. Use `multi_file` to save one PSD per batch entry.
 - This is an independent fork, not an official upstream release.
 
 ## License
