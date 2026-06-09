@@ -1,6 +1,6 @@
 # Agent Notes
 
-PSDC is a ComfyUI custom node fork. The main behavior to protect is native Photoshop layer-mask export from `D2 Save PSD`, including positioned masks created by `D2 Apply Alpha Channel`.
+PSDC is a ComfyUI custom node fork. The main behavior to protect is native Photoshop layer-mask export from `PSDC Save PSD`, including positioned masks created by `PSDC Apply Alpha Channel`.
 
 ## Expected Layout
 
@@ -54,12 +54,12 @@ Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8188/" -TimeoutSec 15
 
 ## Smoke Test
 
-The smoke test queues a three-layer PSD export. Each layer uses `D2 Apply Alpha Channel` to place a smaller image and same-size mask onto a larger 768x768 destination canvas before `D2 Save PSD` writes one PSD in `single_file` mode.
+The smoke test queues a three-layer PSD export. Each layer uses `PSDC Apply Alpha Channel` to place a smaller image and same-size mask onto a larger 768x768 destination canvas before `PSDC Save PSD` writes one PSD in `single_file` mode.
 
 The same graph is included as an importable ComfyUI workflow:
 
 ```text
-workflows/d2_native_masks_3_layer_smoke.json
+workflows/psdc_native_masks_3_layer_smoke.json
 ```
 
 Requirements:
@@ -71,22 +71,22 @@ Run from the ComfyUI folder:
 
 ```powershell
 $clientId = [guid]::NewGuid().ToString()
-$prefix = "D2_SavePSD/positioned_masks_smoke"
+$prefix = "PSDC_SavePSD/positioned_masks_smoke"
 
 $prompt = [ordered]@{
   "1" = [ordered]@{ class_type = "EmptyImage"; inputs = [ordered]@{ width = 768; height = 768; batch_size = 1; color = 0 } }
   "2" = [ordered]@{ class_type = "EmptyImage"; inputs = [ordered]@{ width = 220; height = 160; batch_size = 1; color = 14236194 } }
   "3" = [ordered]@{ class_type = "SolidMask"; inputs = [ordered]@{ value = 1.0; width = 220; height = 160 } }
-  "4" = [ordered]@{ class_type = "D2 Apply Alpha Channel"; inputs = [ordered]@{ image = @("2", 0); mask = @("3", 0); invert_mask = $false; x = 64; y = 96; offset_x = 0; offset_y = 0; destination = @("1", 0) } }
+  "4" = [ordered]@{ class_type = "PSDC Apply Alpha Channel"; inputs = [ordered]@{ image = @("2", 0); mask = @("3", 0); invert_mask = $false; x = 64; y = 96; offset_x = 0; offset_y = 0; destination = @("1", 0) } }
   "5" = [ordered]@{ class_type = "EmptyImage"; inputs = [ordered]@{ width = 280; height = 180; batch_size = 1; color = 2879348 } }
   "6" = [ordered]@{ class_type = "SolidMask"; inputs = [ordered]@{ value = 1.0; width = 280; height = 180 } }
-  "7" = [ordered]@{ class_type = "D2 Apply Alpha Channel"; inputs = [ordered]@{ image = @("5", 0); mask = @("6", 0); invert_mask = $false; x = 330; y = 240; offset_x = 0; offset_y = 0; destination = @("1", 0) } }
+  "7" = [ordered]@{ class_type = "PSDC Apply Alpha Channel"; inputs = [ordered]@{ image = @("5", 0); mask = @("6", 0); invert_mask = $false; x = 330; y = 240; offset_x = 0; offset_y = 0; destination = @("1", 0) } }
   "8" = [ordered]@{ class_type = "EmptyImage"; inputs = [ordered]@{ width = 180; height = 260; batch_size = 1; color = 3235182 } }
   "9" = [ordered]@{ class_type = "SolidMask"; inputs = [ordered]@{ value = 1.0; width = 180; height = 260 } }
-  "10" = [ordered]@{ class_type = "D2 Apply Alpha Channel"; inputs = [ordered]@{ image = @("8", 0); mask = @("9", 0); invert_mask = $false; x = 520; y = 430; offset_x = 0; offset_y = 0; destination = @("1", 0) } }
+  "10" = [ordered]@{ class_type = "PSDC Apply Alpha Channel"; inputs = [ordered]@{ image = @("8", 0); mask = @("9", 0); invert_mask = $false; x = 520; y = 430; offset_x = 0; offset_y = 0; destination = @("1", 0) } }
   "11" = [ordered]@{ class_type = "ImageBatch"; inputs = [ordered]@{ image1 = @("4", 0); image2 = @("7", 0) } }
   "12" = [ordered]@{ class_type = "ImageBatch"; inputs = [ordered]@{ image1 = @("11", 0); image2 = @("10", 0) } }
-  "13" = [ordered]@{ class_type = "D2 Save PSD"; inputs = [ordered]@{ images = @("12", 0); filename_prefix = $prefix; file_mode = "single_file"; alpha_name = "_mask_"; alpha_name_mode = "suffix" } }
+  "13" = [ordered]@{ class_type = "PSDC Save PSD"; inputs = [ordered]@{ images = @("12", 0); filename_prefix = $prefix; file_mode = "single_file"; alpha_name = "_mask_"; alpha_name_mode = "suffix" } }
 }
 
 $body = @{ prompt = $prompt; client_id = $clientId } | ConvertTo-Json -Depth 30
@@ -104,7 +104,7 @@ if (-not $entry -or $entry.status.status_str -ne "success") {
   throw "Smoke prompt failed or timed out."
 }
 
-$psd = Get-ChildItem ".\output\D2_SavePSD" -Filter "positioned_masks_smoke*.psd" |
+$psd = Get-ChildItem ".\output\PSDC_SavePSD" -Filter "positioned_masks_smoke*.psd" |
   Sort-Object LastWriteTime -Descending |
   Select-Object -First 1
 
@@ -122,7 +122,7 @@ Then verify the PSD has three pixel layers with native masks at the expected pos
 from psd_tools import PSDImage
 from pathlib import Path
 
-psd_path = sorted(Path("output/D2_SavePSD").glob("positioned_masks_smoke*.psd"))[-1]
+psd_path = sorted(Path("output/PSDC_SavePSD").glob("positioned_masks_smoke*.psd"))[-1]
 psd = PSDImage.open(psd_path)
 expected = [
     (520, 430, 700, 690),
@@ -155,7 +155,7 @@ Layer 3 pixel visible=True has_mask=True mask_bbox=(64, 96, 284, 256)
 ## Development Notes
 
 - Keep `alpha_name` and `alpha_name_mode` in the save node signature so older workflows still load.
-- `D2 Apply Alpha Channel` should continue to work without `destination`; in that mode it returns an RGBA image the same size as `image`.
+- `PSDC Apply Alpha Channel` should continue to work without `destination`; in that mode it returns an RGBA image the same size as `image`.
 - When `destination` is connected, masks smaller than the destination should be placed at `x`, `y` and the remaining alpha area should stay black.
 - Do not reintroduce standalone hidden mask layers as the default behavior.
 - Do not commit generated PSDs, ComfyUI logs, or `__pycache__`.

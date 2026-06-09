@@ -7,7 +7,7 @@
 
 PSDC is a ComfyUI custom node pack for saving image batches and non-destructive composite stacks as layered Photoshop PSD files with native layer masks.
 
-Save ComfyUI image batches as real layered PSD files. This fork keeps the lean D2 Save PSD node set and upgrades the Photoshop handoff: alpha channels are written as native layer masks on their matching pixel layers.
+Save ComfyUI image batches as real layered PSD files. This fork keeps the lean Save PSD node set and upgrades the Photoshop handoff: alpha channels are written as native layer masks on their matching pixel layers.
 
 Open the exported PSD in Photoshop and you get a clean stack of visible layers, each with its mask already attached. No hidden mask layers, no post-export script, no manual channel paste ritual.
 
@@ -17,17 +17,17 @@ The original `D2 Save PSD` node exported alpha channels as separate hidden pixel
 
 ```mermaid
 flowchart LR
-    A["ComfyUI IMAGE"] --> C["D2 Apply Alpha Channel"]
+    A["ComfyUI IMAGE"] --> C["PSDC Apply Alpha Channel"]
     B["ComfyUI MASK"] --> C
     Z["Optional destination canvas"] --> C
     C --> D["Positioned RGBA layer"]
-    D --> E["D2 Save PSD"]
+    D --> E["PSDC Save PSD"]
     E --> F["Photoshop pixel layer"]
     E --> G["Native layer mask"]
     G --> F
 ```
 
-For multi-layer PSDs, either batch RGBA images before `D2 Save PSD`, or use `D2 Image Composite PSD` as a drop-in-style composite node that carries a parallel `PSD` stack beside the normal flat `IMAGE`.
+For multi-layer PSDs, either batch RGBA images before `PSDC Save PSD`, or use `PSDC Image Composite PSD` as a drop-in-style composite node that carries a parallel `PSD` stack beside the normal flat `IMAGE`.
 
 ## Attribution
 
@@ -69,7 +69,7 @@ The installer adds:
 
 ## Nodes
 
-### D2 Save PSD
+### PSDC Save PSD
 
 Writes incoming images or a connected `PSD` stack to a Photoshop PSD.
 
@@ -80,15 +80,15 @@ Inputs:
 - `file_mode`: `single_file` writes a batch as layers in one PSD; `multi_file` writes one PSD per image.
 - `alpha_name`: Kept for workflow compatibility. This fork writes native masks, so it does not create separate alpha layers.
 - `alpha_name_mode`: Kept for workflow compatibility.
-- `psd`: Optional `PSD` stack from `D2 Image Composite PSD`. When connected, this takes priority over the legacy RGBA-image save path.
+- `psd`: Optional `PSD` stack from `PSDC Image Composite PSD`. When connected, this takes priority over the legacy RGBA-image save path.
 
-Native masks are created when the incoming image has an alpha channel. The easiest way to produce that is with `D2 Apply Alpha Channel`.
+Native masks are created when the incoming image has an alpha channel. The easiest way to produce that is with `PSDC Apply Alpha Channel`.
 
-### D2 Image Composite PSD
+### PSDC Image Composite PSD
 
 Composites like the Essentials `ImageComposite+` node while also building a parallel non-destructive `PSD` stack. The image inputs are intentionally optional so the node can also convert loose images and masks into the PSD track.
 
-Use the `IMAGE` output exactly like a normal flat composite. Daisy-chain the `PSD` output into the next `D2 Image Composite PSD` node's optional `psd` input, then connect the final `PSD` output to `D2 Save PSD`.
+Use the `IMAGE` output exactly like a normal flat composite. Daisy-chain the `PSD` output into the next `PSDC Image Composite PSD` node's optional `psd` input, then connect the final `PSD` output to `PSDC Save PSD`.
 
 Inputs:
 
@@ -104,16 +104,19 @@ Outputs:
 - `image`: The flat composited image, for continuing the normal ComfyUI image path.
 - `psd`: The Photoshop layer stack with the same placement and mask behavior.
 
-### D2 PSD In
+### PSD Load
 
-Starts or passes through a PSD track.
+Loads a Photoshop `.psd` file from the ComfyUI `input` directory and converts it into a `PSD` stack for the rest of the pipeline.
 
 Inputs:
 
-- `width`, `height`, `batch_size`: Used only when no `PSD` input is connected. The node creates an empty PSD canvas and a matching black flat image.
-- `psd`: Optional PSD track to pass through. When connected, the node outputs the flattened `IMAGE` plus the unchanged `PSD`.
+- `psd_file`: Dropdown of `.psd` files in your ComfyUI `input` folder. Each top-level Photoshop layer becomes a layer in the `PSD` stack, with its mask and position preserved.
 
-### D2 Image To PSD
+Outputs:
+
+- `psd`: The loaded Photoshop layer stack.
+
+### PSDC Image To PSD
 
 Converts a loose `IMAGE` or `IMAGE` plus `MASK` into the PSD track without setting up a full composite node.
 
@@ -128,11 +131,11 @@ Outputs:
 - `image`: The flat result after adding the new layer or layers.
 - `psd`: The updated PSD stack.
 
-### D2 Apply Alpha Channel
+### PSDC Apply Alpha Channel
 
 Combines an `IMAGE` and a `MASK` into one RGBA image. With an optional `destination` connected, it places the image and mask onto that larger canvas using `x`, `y`, `offset_x`, and `offset_y`, filling the rest of the alpha/mask channel with black.
 
-Feed these RGBA outputs into `D2 Save PSD` to get Photoshop layers with masks already attached and positioned.
+Feed these RGBA outputs into `PSDC Save PSD` to get Photoshop layers with masks already attached and positioned.
 
 Inputs:
 
@@ -143,9 +146,9 @@ Inputs:
 - `offset_x`, `offset_y`: Extra offsets, matching the Essentials `ImageComposite+` style.
 - `destination`: Optional larger canvas. When omitted, the output keeps the input image size.
 
-### D2 Extract Alpha
+### PSDC Extract Alpha
 
-Splits a D2-applied alpha channel back into:
+Splits a PSDC-applied alpha channel back into:
 
 - `MASK`
 - RGBA `IMAGE`
@@ -156,15 +159,15 @@ Recommended composite workflow:
 
 ```mermaid
 flowchart TB
-    B["Base canvas IMAGE"] --> C1["D2 Image Composite PSD"]
+    B["Base canvas IMAGE"] --> C1["PSDC Image Composite PSD"]
     I1["Layer image 1"] --> C1
     M1["Mask 1"] --> C1
-    C1 -- "flat IMAGE" --> C2["D2 Image Composite PSD"]
+    C1 -- "flat IMAGE" --> C2["PSDC Image Composite PSD"]
     C1 -- "PSD" --> C2
     I2["Layer image 2"] --> C2
     M2["Mask 2"] --> C2
     C2 -- "flat IMAGE" --> Next["Continue ComfyUI image path"]
-    C2 -- "PSD" --> S["D2 Save PSD"]
+    C2 -- "PSD" --> S["PSDC Save PSD"]
     Next --> S
     S --> P["PSD with background plus editable layers"]
 ```
@@ -174,15 +177,15 @@ Legacy RGBA-batch workflow:
 ```mermaid
 flowchart TB
     subgraph L1["Layer 1"]
-        I1["Small image"] --> A1["D2 Apply Alpha Channel x/y"]
+        I1["Small image"] --> A1["PSDC Apply Alpha Channel x/y"]
         M1["Same-size mask"] --> A1
     end
     subgraph L2["Layer 2"]
-        I2["Small image"] --> A2["D2 Apply Alpha Channel x/y"]
+        I2["Small image"] --> A2["PSDC Apply Alpha Channel x/y"]
         M2["Same-size mask"] --> A2
     end
     subgraph L3["Layer 3"]
-        I3["Small image"] --> A3["D2 Apply Alpha Channel x/y"]
+        I3["Small image"] --> A3["PSDC Apply Alpha Channel x/y"]
         M3["Same-size mask"] --> A3
     end
     C["Large destination canvas"] --> A1
@@ -191,7 +194,7 @@ flowchart TB
     A1 --> B["ImageBatch"]
     A2 --> B
     A3 --> B
-    B --> S["D2 Save PSD single_file"]
+    B --> S["PSDC Save PSD single_file"]
     S --> P["PSD with 3 pixel layers and 3 native masks"]
 ```
 
@@ -199,10 +202,10 @@ For a three-layer PSD:
 
 1. Add one larger destination canvas.
 2. Add each smaller image and its same-size mask.
-3. Pair each image and mask with `D2 Apply Alpha Channel`.
-4. Set `x` and `y` on each D2 alpha node.
+3. Pair each image and mask with `PSDC Apply Alpha Channel`.
+4. Set `x` and `y` on each PSDC alpha node.
 5. Batch the positioned RGBA outputs with `ImageBatch`.
-6. Send the final batch into `D2 Save PSD`.
+6. Send the final batch into `PSDC Save PSD`.
 7. Set `file_mode` to `single_file`.
 
 Photoshop should open the result as three pixel layers, each with its own layer mask.
@@ -212,19 +215,19 @@ Photoshop should open the result as three pixel layers, each with its own layer 
 PSD files are saved under your ComfyUI output directory. For example:
 
 ```text
-ComfyUI/output/D2_SavePSD/layers_masks_00001_.psd
+ComfyUI/output/PSDC_SavePSD/layers_masks_00001_.psd
 ```
 
 The subfolder comes from your `filename_prefix`. A prefix like:
 
 ```text
-D2_SavePSD/layers_masks
+PSDC_SavePSD/layers_masks
 ```
 
 will save into:
 
 ```text
-ComfyUI/output/D2_SavePSD/
+ComfyUI/output/PSDC_SavePSD/
 ```
 
 ## Verified Behavior
@@ -241,7 +244,7 @@ Layer 3 visible=True has_mask=True mask_bbox=(64, 96, 284, 256)
 An importable smoke workflow is included at:
 
 ```text
-workflows/d2_native_masks_3_layer_smoke.json
+workflows/psdc_native_masks_3_layer_smoke.json
 ```
 
 The command-line smoke workflow is documented in [AGENTS.md](AGENTS.md).
@@ -249,7 +252,7 @@ The command-line smoke workflow is documented in [AGENTS.md](AGENTS.md).
 ## Notes and Limits
 
 - Layer masks are pixel masks, not vector masks.
-- `D2 Image Composite PSD` creates a `Background` layer from the first destination image when no `PSD` input is connected, then adds `Layer 1`, `Layer 2`, and so on for each composite.
+- `PSDC Image Composite PSD` creates a `Background` layer from the first destination image when no `PSD` input is connected, then adds `Layer 1`, `Layer 2`, and so on for each composite.
 - `alpha_name` and `alpha_name_mode` remain in the node so older workflows still load, but this fork no longer emits standalone mask layers.
 - If an input image has no alpha channel, the PSD layer is written without a mask.
 - When a `PSD` stack has multiple batch entries, `single_file` saves batch 0. Use `multi_file` to save one PSD per batch entry.

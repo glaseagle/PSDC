@@ -10,7 +10,7 @@ from psd_tools import PSDImage
 
 
 MAX_RESOLUTION = 16384
-PSD_STACK_TYPE = "D2_PSD_STACK"
+PSD_STACK_TYPE = "PSDC_PSD_STACK"
 
 
 def tensor_to_uint8_array(tensor):
@@ -375,7 +375,7 @@ def create_psd_image_from_stack(psd_stack, batch_index=0):
     return psd
 
 
-class D2_ApplyAlphaChannel:
+class PSDC_ApplyAlphaChannel:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -395,7 +395,7 @@ class D2_ApplyAlphaChannel:
 
     RETURN_TYPES = ("IMAGE",)
     FUNCTION = "apply_alpha_channel"
-    CATEGORY = "D2/Image"
+    CATEGORY = "PSDC/Image"
 
     def apply_alpha_channel(self, image, mask, invert_mask=False, x=0, y=0, offset_x=0, offset_y=0, destination=None):
         source = image
@@ -455,7 +455,7 @@ class D2_ApplyAlphaChannel:
         return (output,)
 
 
-class D2_ImageCompositePSD:
+class PSDC_ImageCompositePSD:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -476,7 +476,7 @@ class D2_ImageCompositePSD:
     RETURN_TYPES = ("IMAGE", "PSD")
     RETURN_NAMES = ("image", "psd")
     FUNCTION = "execute"
-    CATEGORY = "D2/Image"
+    CATEGORY = "PSDC/Image"
 
     def execute(self, x, y, offset_x, offset_y, destination=None, source=None, mask=None, psd=None):
         psd_connected = is_psd_stack(psd)
@@ -732,7 +732,7 @@ def load_psd_file_to_stack(path):
     }
 
 
-class D2_PSDLoad:
+class PSDC_PSDLoad:
     @classmethod
     def INPUT_TYPES(cls):
         input_dir = folder_paths.get_input_directory()
@@ -748,7 +748,7 @@ class D2_PSDLoad:
     RETURN_TYPES = ("PSD",)
     RETURN_NAMES = ("psd",)
     FUNCTION = "load"
-    CATEGORY = "D2/Image"
+    CATEGORY = "PSDC/Image"
 
     def load(self, psd_file):
         path = folder_paths.get_annotated_filepath(psd_file)
@@ -769,7 +769,7 @@ class D2_PSDLoad:
         return True
 
 
-class D2_ImageToPSD:
+class PSDC_ImageToPSD:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -785,13 +785,13 @@ class D2_ImageToPSD:
     RETURN_TYPES = ("IMAGE", "PSD")
     RETURN_NAMES = ("image", "psd")
     FUNCTION = "execute"
-    CATEGORY = "D2/Image"
+    CATEGORY = "PSDC/Image"
 
     def execute(self, image, mask=None, psd=None):
-        return D2_ImageCompositePSD().execute(0, 0, 0, 0, source=image, mask=mask, psd=psd)
+        return PSDC_ImageCompositePSD().execute(0, 0, 0, 0, source=image, mask=mask, psd=psd)
 
 
-class D2_SavePSD:
+class PSDC_SavePSD:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
 
@@ -813,7 +813,7 @@ class D2_SavePSD:
     RETURN_TYPES = ()
     FUNCTION = "save_rgba_psd"
     OUTPUT_NODE = True
-    CATEGORY = "D2/Image"
+    CATEGORY = "PSDC/Image"
 
     def save_rgba_psd(self, filename_prefix, file_mode, alpha_name="_mask_", alpha_name_mode="simple", images=None, psd=None):
         if is_psd_stack(psd):
@@ -823,7 +823,7 @@ class D2_SavePSD:
                 logging.warning("Falling back to legacy image PSD save after PSD stack error: %s", str(error))
 
         if images is None:
-            logging.warning("D2 Save PSD received neither images nor a PSD stack; nothing was saved.")
+            logging.warning("PSDC Save PSD received neither images nor a PSD stack; nothing was saved.")
             return {}
 
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
@@ -912,7 +912,7 @@ class D2_SavePSD:
         return {}
 
 
-class D2_ExtractAlpha:
+class PSDC_ExtractAlpha:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -923,7 +923,7 @@ class D2_ExtractAlpha:
 
     RETURN_TYPES = ("MASK", "IMAGE")
     FUNCTION = "extract_alpha"
-    CATEGORY = "D2/Image"
+    CATEGORY = "PSDC/Image"
 
     def extract_alpha(self, image):
         alpha_tensors = []
@@ -952,19 +952,19 @@ class D2_ExtractAlpha:
 
 
 NODE_CLASS_MAPPINGS = {
-    "D2 Apply Alpha Channel": D2_ApplyAlphaChannel,
-    "D2 Image Composite PSD": D2_ImageCompositePSD,
-    "PSD Load": D2_PSDLoad,
-    "D2 Image To PSD": D2_ImageToPSD,
-    "D2 Save PSD": D2_SavePSD,
-    "D2 Extract Alpha": D2_ExtractAlpha,
+    "PSDC Apply Alpha Channel": PSDC_ApplyAlphaChannel,
+    "PSDC Image Composite PSD": PSDC_ImageCompositePSD,
+    "PSD Load": PSDC_PSDLoad,
+    "PSDC Image To PSD": PSDC_ImageToPSD,
+    "PSDC Save PSD": PSDC_SavePSD,
+    "PSDC Extract Alpha": PSDC_ExtractAlpha,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "D2 Apply Alpha Channel": "D2 Apply Alpha Channel",
-    "D2 Image Composite PSD": "D2 Image Composite PSD",
+    "PSDC Apply Alpha Channel": "PSDC Apply Alpha Channel",
+    "PSDC Image Composite PSD": "PSDC Image Composite PSD",
     "PSD Load": "PSD Load",
-    "D2 Image To PSD": "D2 Image To PSD",
-    "D2 Save PSD": "D2 Save PSD",
-    "D2 Extract Alpha": "D2 Extract Alpha",
+    "PSDC Image To PSD": "PSDC Image To PSD",
+    "PSDC Save PSD": "PSDC Save PSD",
+    "PSDC Extract Alpha": "PSDC Extract Alpha",
 }

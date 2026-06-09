@@ -150,7 +150,7 @@
     },
     {
       "id": 9,
-      "type": "D2 Image To PSD",
+      "type": "PSDC Image To PSD",
       "pos": [-360, 300],
       "size": [270, 90],
       "flags": {},
@@ -163,12 +163,12 @@
         {"name": "image", "type": "IMAGE", "links": null, "slot_index": 0, "shape": 3},
         {"name": "psd", "type": "PSD", "links": [13], "slot_index": 1, "shape": 3}
       ],
-      "properties": {"Node name for S&R": "D2 Image To PSD"},
+      "properties": {"Node name for S&R": "PSDC Image To PSD"},
       "widgets_values": []
     },
     {
       "id": 10,
-      "type": "D2 Image Composite PSD",
+      "type": "PSDC Image Composite PSD",
       "pos": [40, 260],
       "size": [315, 170],
       "flags": {},
@@ -183,7 +183,7 @@
         {"name": "image", "type": "IMAGE", "links": [14], "slot_index": 0, "shape": 3},
         {"name": "psd", "type": "PSD", "links": [15], "slot_index": 1, "shape": 3}
       ],
-      "properties": {"Node name for S&R": "D2 Image Composite PSD"},
+      "properties": {"Node name for S&R": "PSDC Image Composite PSD"},
       "widgets_values": [0, 0, 0, 0]
     },
     {
@@ -211,7 +211,7 @@
     },
     {
       "id": 12,
-      "type": "D2 Image Composite PSD",
+      "type": "PSDC Image Composite PSD",
       "pos": [980, 280],
       "size": [315, 170],
       "flags": {},
@@ -225,12 +225,12 @@
         {"name": "image", "type": "IMAGE", "links": [18], "slot_index": 0, "shape": 3},
         {"name": "psd", "type": "PSD", "links": [17], "slot_index": 1, "shape": 3}
       ],
-      "properties": {"Node name for S&R": "D2 Image Composite PSD"},
+      "properties": {"Node name for S&R": "PSDC Image Composite PSD"},
       "widgets_values": [0, 0, 0, 0]
     },
     {
       "id": 13,
-      "type": "D2 Save PSD",
+      "type": "PSDC Save PSD",
       "pos": [1400, 320],
       "size": [315, 150],
       "flags": {},
@@ -240,8 +240,8 @@
         {"name": "psd", "type": "PSD", "link": 17}
       ],
       "outputs": [],
-      "properties": {"Node name for S&R": "D2 Save PSD"},
-      "widgets_values": ["d2_sam_psd_batch_glsl/ComfyUI", "single_file", "_mask_", "simple"]
+      "properties": {"Node name for S&R": "PSDC Save PSD"},
+      "widgets_values": ["psdc_sam_psd_batch_glsl/ComfyUI", "single_file", "_mask_", "simple"]
     },
     {
       "id": 14,
