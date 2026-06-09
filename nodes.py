@@ -475,52 +475,100 @@ class D2_ImageCompositePSD:
     CATEGORY = "D2/Image"
 
     def execute(self, x, y, offset_x, offset_y, destination=None, source=None, mask=None, psd=None):
-        has_destination_input = destination is not None
+        psd_connected = is_psd_stack(psd)
+        destination_count = int(destination.shape[0]) if destination is not None else 0
         source_count = int(source.shape[0]) if source is not None else 0
         mask_count = get_mask_batch_size(mask) if mask is not None else 0
-        layer_count = max(source_count, mask_count)
+        source_layer_count = max(source_count, mask_count)
+        destination_layer_count = destination_count if psd_connected and destination is not None else 0
+        batch_to_layers = max(destination_layer_count, source_layer_count) > 1
 
         if source is not None:
             dtype = source.dtype
             device = source.device
-        elif mask is not None:
-            dtype = torch.float32
-            device = mask.device if torch.is_tensor(mask) else "cpu"
         elif destination is not None:
             dtype = destination.dtype
             device = destination.device
-        elif is_psd_stack(psd):
+        elif mask is not None:
+            dtype = torch.float32
+            device = mask.device if torch.is_tensor(mask) else "cpu"
+        else:
             dtype = torch.float32
             device = "cpu"
-        else:
+
+        if not any((psd_connected, destination is not None, source is not None, mask is not None)):
             empty = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
             return (empty, create_empty_psd_stack(1, 1, 1))
 
-        if layer_count > 1:
+        if psd_connected:
+            width = int(psd["width"])
+            height = int(psd["height"])
+            batch_size = 1 if batch_to_layers else max(
+                int(psd.get("batch_size", 1)),
+                destination_count,
+                source_count,
+                mask_count,
+                1,
+            )
+            psd_stack = match_psd_stack_batch_size(psd, batch_size)
+            image = flatten_psd_stack(psd_stack, dtype=dtype, device=device)
+        else:
+            batch_size = 1 if batch_to_layers else max(destination_count, source_count, mask_count, 1)
             if destination is not None:
-                height = int(destination.shape[1])
                 width = int(destination.shape[2])
-                base_image = destination[:1, ..., :3].to(dtype=dtype, device=device)
-            elif is_psd_stack(psd):
-                height = int(psd["height"])
-                width = int(psd["width"])
-                base_image = flatten_psd_stack(psd, dtype=dtype, device=device)[:1]
+                height = int(destination.shape[1])
+                base_image = match_batch_size(destination[..., :3], batch_size).to(dtype=dtype, device=device)
+                psd_stack = create_psd_stack_from_destination(base_image)
+                image = base_image.clone()
             elif source is not None:
-                height = int(source.shape[1])
                 width = int(source.shape[2])
-                base_image = torch.zeros((1, height, width, 3), dtype=dtype, device=device)
+                height = int(source.shape[1])
+                psd_stack = create_empty_psd_stack(width, height, batch_size)
+                image = torch.zeros((batch_size, height, width, 3), dtype=dtype, device=device)
             else:
                 height, width = get_mask_size(mask)
-                base_image = torch.zeros((1, height, width, 3), dtype=dtype, device=device)
+                psd_stack = create_empty_psd_stack(width, height, batch_size)
+                image = torch.zeros((batch_size, height, width, 3), dtype=dtype, device=device)
 
-            psd_stack = prepare_psd_stack(
-                psd,
-                width,
-                height,
-                1,
-                destination=base_image if has_destination_input else None,
-            )
-            image = base_image.clone()
+        if psd_connected and destination is not None:
+            if batch_to_layers:
+                destination_layers = destination[..., :3].to(dtype=dtype, device=device)
+                for index in range(destination_count):
+                    layer = destination_layers[index : index + 1]
+                    layer_x = [0]
+                    layer_y = [0]
+                    layer_mask = torch.ones((1, layer.shape[1], layer.shape[2]), dtype=dtype, device=device)
+                    image = composite_tensors(image, layer, layer_mask, layer_x, layer_y)
+                    psd_layer_mask = None
+                    if layer.shape[1] != height or layer.shape[2] != width:
+                        psd_layer_mask = layer_mask
+                    psd_stack = append_composite_layer_to_psd(psd_stack, layer, psd_layer_mask, layer_x, layer_y)
+            else:
+                destination_layer = match_batch_size(destination[..., :3], batch_size).to(dtype=dtype, device=device)
+                x_positions = [0] * batch_size
+                y_positions = [0] * batch_size
+                layer_mask = torch.ones(
+                    (batch_size, destination_layer.shape[1], destination_layer.shape[2]),
+                    dtype=dtype,
+                    device=device,
+                )
+                image = composite_tensors(image, destination_layer, layer_mask, x_positions, y_positions)
+                psd_layer_mask = None
+                if destination_layer.shape[1] != height or destination_layer.shape[2] != width:
+                    psd_layer_mask = layer_mask
+                psd_stack = append_composite_layer_to_psd(
+                    psd_stack,
+                    destination_layer,
+                    psd_layer_mask,
+                    x_positions,
+                    y_positions,
+                )
+
+        if source is None and mask is None:
+            return (image, psd_stack)
+
+        if batch_to_layers:
+            layer_count = max(source_layer_count, 1)
             source_layers = match_batch_size(source.to(dtype=dtype, device=device), layer_count) if source is not None else None
             mask_layers = normalize_mask_batch(mask, layer_count).to(dtype=dtype, device=device) if mask is not None else None
             x_positions = normalize_positions(x, layer_count, offset_x)
@@ -545,7 +593,19 @@ class D2_ImageCompositePSD:
 
                 layer_x = [x_positions[index]]
                 layer_y = [y_positions[index]]
-                if layer_source is not None and opacity > 0:
+                if (
+                    source_layers is not None
+                    and layer_mask is None
+                    and (
+                        layer_source.shape[1] != height
+                        or layer_source.shape[2] != width
+                        or layer_x[0] != 0
+                        or layer_y[0] != 0
+                    )
+                ):
+                    layer_mask = torch.ones((1, layer_source.shape[1], layer_source.shape[2]), dtype=dtype, device=device)
+
+                if opacity > 0:
                     composite_mask = layer_mask
                     if composite_mask is None:
                         composite_mask = torch.ones(
@@ -566,44 +626,6 @@ class D2_ImageCompositePSD:
 
             return (image, psd_stack)
 
-        has_layer_inputs = source is not None or mask is not None
-        if source is not None:
-            batch_size = int(source.shape[0])
-        elif mask is not None:
-            batch_size = get_mask_batch_size(mask)
-        elif destination is not None:
-            batch_size = int(destination.shape[0])
-        else:
-            batch_size = int(psd.get("batch_size", 1))
-
-        if destination is not None:
-            height = int(destination.shape[1])
-            width = int(destination.shape[2])
-            destination = match_batch_size(destination[..., :3], batch_size)
-        elif is_psd_stack(psd):
-            height = int(psd["height"])
-            width = int(psd["width"])
-            destination = flatten_psd_stack(psd, dtype=dtype, device=device)
-            destination = match_batch_size(destination, batch_size)
-        elif source is not None:
-            height = int(source.shape[1])
-            width = int(source.shape[2])
-            destination = torch.zeros((batch_size, height, width, 3), dtype=dtype, device=device)
-        else:
-            height, width = get_mask_size(mask)
-            destination = torch.zeros((batch_size, height, width, 3), dtype=dtype, device=device)
-
-        psd_stack = prepare_psd_stack(
-            psd,
-            width,
-            height,
-            batch_size,
-            destination=destination if has_destination_input else None,
-        )
-
-        if not has_layer_inputs:
-            return (destination, psd_stack)
-
         source_alpha = None
         if source is not None:
             source = match_batch_size(source, batch_size).to(dtype=dtype, device=device)
@@ -616,14 +638,8 @@ class D2_ImageCompositePSD:
             layer_height, layer_width = get_mask_size(mask)
             source_rgb = torch.zeros((batch_size, layer_height, layer_width, 3), dtype=dtype, device=device)
 
-        explicit_mask = mask is not None
         if mask is None:
-            if source_alpha is not None:
-                layer_mask = source_alpha.to(dtype=dtype, device=device)
-            elif source is not None and not has_destination_input and not is_psd_stack(psd):
-                layer_mask = None
-            else:
-                layer_mask = torch.ones((batch_size, layer_height, layer_width), dtype=dtype, device=device)
+            layer_mask = source_alpha.to(dtype=dtype, device=device) if source_alpha is not None else None
         else:
             layer_mask = normalize_mask_batch(mask, batch_size).to(dtype=dtype, device=device)
             if source is not None:
@@ -632,30 +648,87 @@ class D2_ImageCompositePSD:
         x_positions = normalize_positions(x, batch_size, offset_x)
         y_positions = normalize_positions(y, batch_size, offset_y)
 
+        if source is not None and layer_mask is None:
+            needs_position_mask = (
+                layer_height != height
+                or layer_width != width
+                or any(position != 0 for position in x_positions)
+                or any(position != 0 for position in y_positions)
+            )
+            if needs_position_mask:
+                layer_mask = torch.ones((batch_size, layer_height, layer_width), dtype=dtype, device=device)
+
         if source is None:
             opacity = 0
-            image = destination
         else:
             opacity = 255
             composite_mask = layer_mask
             if composite_mask is None:
                 composite_mask = torch.ones((batch_size, layer_height, layer_width), dtype=dtype, device=device)
-            image = composite_tensors(destination, source_rgb, composite_mask, x_positions, y_positions)
-
-        layer_mask_for_psd = layer_mask
-        if source is None and explicit_mask:
-            layer_mask_for_psd = normalize_mask_batch(mask, batch_size).to(dtype=dtype, device=device)
+            image = composite_tensors(image, source_rgb, composite_mask, x_positions, y_positions)
 
         psd_stack = append_composite_layer_to_psd(
             psd_stack,
             source_rgb,
-            layer_mask_for_psd,
+            layer_mask,
             x_positions,
             y_positions,
             opacity=opacity,
         )
 
         return (image, psd_stack)
+
+
+class D2_PSDIn:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "width": ("INT", {"default": 512, "min": 1, "max": MAX_RESOLUTION, "step": 1}),
+                "height": ("INT", {"default": 512, "min": 1, "max": MAX_RESOLUTION, "step": 1}),
+                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096, "step": 1}),
+            },
+            "optional": {
+                "psd": ("PSD",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "PSD")
+    RETURN_NAMES = ("image", "psd")
+    FUNCTION = "execute"
+    CATEGORY = "D2/Image"
+
+    def execute(self, width, height, batch_size, psd=None):
+        if is_psd_stack(psd):
+            psd_stack = copy_psd_stack(psd)
+            image = flatten_psd_stack(psd_stack)
+            return (image, psd_stack)
+
+        psd_stack = create_empty_psd_stack(width, height, batch_size)
+        image = torch.zeros((batch_size, height, width, 3), dtype=torch.float32)
+        return (image, psd_stack)
+
+
+class D2_ImageToPSD:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+            },
+            "optional": {
+                "mask": ("MASK",),
+                "psd": ("PSD",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "PSD")
+    RETURN_NAMES = ("image", "psd")
+    FUNCTION = "execute"
+    CATEGORY = "D2/Image"
+
+    def execute(self, image, mask=None, psd=None):
+        return D2_ImageCompositePSD().execute(0, 0, 0, 0, source=image, mask=mask, psd=psd)
 
 
 class D2_SavePSD:
@@ -821,6 +894,8 @@ class D2_ExtractAlpha:
 NODE_CLASS_MAPPINGS = {
     "D2 Apply Alpha Channel": D2_ApplyAlphaChannel,
     "D2 Image Composite PSD": D2_ImageCompositePSD,
+    "D2 PSD In": D2_PSDIn,
+    "D2 Image To PSD": D2_ImageToPSD,
     "D2 Save PSD": D2_SavePSD,
     "D2 Extract Alpha": D2_ExtractAlpha,
 }
@@ -828,6 +903,8 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "D2 Apply Alpha Channel": "D2 Apply Alpha Channel",
     "D2 Image Composite PSD": "D2 Image Composite PSD",
+    "D2 PSD In": "D2 PSD In",
+    "D2 Image To PSD": "D2 Image To PSD",
     "D2 Save PSD": "D2 Save PSD",
     "D2 Extract Alpha": "D2 Extract Alpha",
 }

@@ -92,17 +92,41 @@ Use the `IMAGE` output exactly like a normal flat composite. Daisy-chain the `PS
 
 Inputs:
 
-- `destination`: Optional flat image canvas to composite onto. By itself it becomes a background PSD layer.
+- `destination`: Optional flat image canvas to composite onto. By itself it becomes a background PSD layer. With a connected `PSD`, it is added as a new higher image layer instead of replacing the PSD base.
 - `source`: Optional image layer to place. By itself it becomes a PSD image layer. Batched sources are expanded into separate PSD layers.
 - `x`, `y`: Position of the source on the destination canvas.
 - `offset_x`, `offset_y`: Extra offsets, matching the Essentials `ImageComposite+` style.
 - `mask`: Optional mask. With `source`, it masks the source layer. By itself it creates a transparent 0-opacity PSD layer carrying the mask. With `destination`, it does not mask the destination; it adds that transparent mask layer above the destination. Batched masks are expanded into separate PSD layers, repeating a single source image when needed.
-- `psd`: Optional carried PSD stack from a previous `D2 Image Composite PSD`.
+- `psd`: Optional carried PSD stack from a previous PSDC node. When connected, any incoming `destination`, `source`, or mask-only input is added above the existing PSD stack.
 
 Outputs:
 
 - `image`: The flat composited image, for continuing the normal ComfyUI image path.
 - `psd`: The Photoshop layer stack with the same placement and mask behavior.
+
+### D2 PSD In
+
+Starts or passes through a PSD track.
+
+Inputs:
+
+- `width`, `height`, `batch_size`: Used only when no `PSD` input is connected. The node creates an empty PSD canvas and a matching black flat image.
+- `psd`: Optional PSD track to pass through. When connected, the node outputs the flattened `IMAGE` plus the unchanged `PSD`.
+
+### D2 Image To PSD
+
+Converts a loose `IMAGE` or `IMAGE` plus `MASK` into the PSD track without setting up a full composite node.
+
+Inputs:
+
+- `image`: Image layer content. A batched image becomes one PSD layer per batch item.
+- `mask`: Optional layer mask. Batched masks become one PSD layer per mask, repeating a single image when needed.
+- `psd`: Optional existing PSD track. When connected, the image/mask layers are added above it.
+
+Outputs:
+
+- `image`: The flat result after adding the new layer or layers.
+- `psd`: The updated PSD stack.
 
 ### D2 Apply Alpha Channel
 

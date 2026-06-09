@@ -1,0 +1,288 @@
+{
+  "id": "a13dcf18-4f36-452d-919a-d1393bf6cfbb",
+  "revision": 0,
+  "last_node_id": 14,
+  "last_link_id": 18,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "CheckpointLoaderSimple",
+      "pos": [-1280, -520],
+      "size": [340, 160],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [1], "slot_index": 0, "shape": 3},
+        {"name": "CLIP", "type": "CLIP", "links": [2], "slot_index": 1, "shape": 3},
+        {"name": "VAE", "type": "VAE", "links": null, "slot_index": 2, "shape": 3}
+      ],
+      "properties": {
+        "Node name for S&R": "CheckpointLoaderSimple",
+        "models": [
+          {
+            "name": "sam3.1_multiplex_fp16.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/sam3.1/resolve/main/checkpoints/sam3.1_multiplex_fp16.safetensors",
+            "directory": "checkpoints"
+          }
+        ]
+      },
+      "widgets_values": ["sam3.1_multiplex_fp16.safetensors"]
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [-1280, -260],
+      "size": [300, 400],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [3, 8, 10, 11], "slot_index": 0, "shape": 3},
+        {"name": "MASK", "type": "MASK", "links": null, "slot_index": 1, "shape": 3}
+      ],
+      "properties": {"Node name for S&R": "LoadImage"},
+      "widgets_values": ["premium_photo-1708336571807-94f93bcaf988.avif", "image"]
+    },
+    {
+      "id": 3,
+      "type": "CLIPTextEncode",
+      "pos": [-880, -520],
+      "size": [400, 200],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {"name": "clip", "type": "CLIP", "link": 2}
+      ],
+      "outputs": [
+        {"name": "CONDITIONING", "type": "CONDITIONING", "links": [4], "slot_index": 0, "shape": 3}
+      ],
+      "properties": {"Node name for S&R": "CLIPTextEncode"},
+      "widgets_values": ["person:5"]
+    },
+    {
+      "id": 4,
+      "type": "SAM3_Detect",
+      "pos": [-780, -240],
+      "size": [360, 210],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 1},
+        {"name": "image", "type": "IMAGE", "link": 3},
+        {"name": "conditioning", "type": "CONDITIONING", "link": 4}
+      ],
+      "outputs": [
+        {"name": "masks", "type": "MASK", "links": [5, 12], "slot_index": 0, "shape": 3},
+        {"name": "bboxes", "type": "BOUNDING_BOX", "links": [7], "slot_index": 1, "shape": 3}
+      ],
+      "properties": {"Node name for S&R": "SAM3_Detect"},
+      "widgets_values": [0.5, 2, true]
+    },
+    {
+      "id": 5,
+      "type": "MaskToImage",
+      "pos": [-360, -320],
+      "size": [240, 26],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {"name": "mask", "type": "MASK", "link": 5}
+      ],
+      "outputs": [
+        {"name": "IMAGE", "type": "IMAGE", "links": [6], "slot_index": 0, "shape": 3}
+      ],
+      "properties": {"Node name for S&R": "MaskToImage"},
+      "widgets_values": []
+    },
+    {
+      "id": 6,
+      "type": "PreviewImage",
+      "pos": [-60, -360],
+      "size": [300, 260],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 6}
+      ],
+      "outputs": [],
+      "properties": {"Node name for S&R": "PreviewImage"},
+      "widgets_values": []
+    },
+    {
+      "id": 7,
+      "type": "DrawBBoxes",
+      "pos": [-360, 20],
+      "size": [260, 120],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {"name": "bboxes", "type": "BOUNDING_BOX", "link": 7},
+        {"name": "image", "type": "IMAGE", "link": 8}
+      ],
+      "outputs": [
+        {"name": "out_image", "type": "IMAGE", "links": [9], "slot_index": 0, "shape": 3}
+      ],
+      "properties": {"Node name for S&R": "DrawBBoxes"},
+      "widgets_values": []
+    },
+    {
+      "id": 8,
+      "type": "PreviewImage",
+      "pos": [-60, 0],
+      "size": [300, 260],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 9}
+      ],
+      "outputs": [],
+      "properties": {"Node name for S&R": "PreviewImage"},
+      "widgets_values": []
+    },
+    {
+      "id": 9,
+      "type": "D2 Image To PSD",
+      "pos": [-360, 300],
+      "size": [270, 90],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {"name": "image", "type": "IMAGE", "link": 10}
+      ],
+      "outputs": [
+        {"name": "image", "type": "IMAGE", "links": null, "slot_index": 0, "shape": 3},
+        {"name": "psd", "type": "PSD", "links": [13], "slot_index": 1, "shape": 3}
+      ],
+      "properties": {"Node name for S&R": "D2 Image To PSD"},
+      "widgets_values": []
+    },
+    {
+      "id": 10,
+      "type": "D2 Image Composite PSD",
+      "pos": [40, 260],
+      "size": [315, 170],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {"name": "source", "type": "IMAGE", "link": 11},
+        {"name": "mask", "type": "MASK", "link": 12},
+        {"name": "psd", "type": "PSD", "link": 13}
+      ],
+      "outputs": [
+        {"name": "image", "type": "IMAGE", "links": [14], "slot_index": 0, "shape": 3},
+        {"name": "psd", "type": "PSD", "links": [15], "slot_index": 1, "shape": 3}
+      ],
+      "properties": {"Node name for S&R": "D2 Image Composite PSD"},
+      "widgets_values": [0, 0, 0, 0]
+    },
+    {
+      "id": 11,
+      "type": "GLSLShader",
+      "pos": [460, 240],
+      "size": [430, 280],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {"name": "images.image0", "type": "IMAGE", "link": 14}
+      ],
+      "outputs": [
+        {"name": "IMAGE0", "type": "IMAGE", "links": [16], "slot_index": 0, "shape": 3},
+        {"name": "IMAGE1", "type": "IMAGE", "links": null, "slot_index": 1, "shape": 3},
+        {"name": "IMAGE2", "type": "IMAGE", "links": null, "slot_index": 2, "shape": 3},
+        {"name": "IMAGE3", "type": "IMAGE", "links": null, "slot_index": 3, "shape": 3}
+      ],
+      "properties": {"Node name for S&R": "GLSLShader"},
+      "widgets_values": [
+        "#version 300 es\nprecision highp float;\n\nuniform sampler2D u_image0;\nuniform vec2 u_resolution;\n\nin vec2 v_texCoord;\nlayout(location = 0) out vec4 fragColor0;\nlayout(location = 1) out vec4 fragColor1;\nlayout(location = 2) out vec4 fragColor2;\nlayout(location = 3) out vec4 fragColor3;\n\nvoid main() {\n    vec4 color = texture(u_image0, v_texCoord);\n    vec2 center = v_texCoord - vec2(0.5);\n    float vignette = smoothstep(0.85, 0.15, length(center));\n    vec3 graded = vec3(color.r * 0.55 + 0.25, color.g * 0.85, min(color.b + 0.22, 1.0));\n    fragColor0 = vec4(mix(color.rgb, graded, vignette), color.a);\n    fragColor1 = color;\n    fragColor2 = color;\n    fragColor3 = color;\n}\n",
+        "from_input"
+      ]
+    },
+    {
+      "id": 12,
+      "type": "D2 Image Composite PSD",
+      "pos": [980, 280],
+      "size": [315, 170],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {"name": "source", "type": "IMAGE", "link": 16},
+        {"name": "psd", "type": "PSD", "link": 15}
+      ],
+      "outputs": [
+        {"name": "image", "type": "IMAGE", "links": [18], "slot_index": 0, "shape": 3},
+        {"name": "psd", "type": "PSD", "links": [17], "slot_index": 1, "shape": 3}
+      ],
+      "properties": {"Node name for S&R": "D2 Image Composite PSD"},
+      "widgets_values": [0, 0, 0, 0]
+    },
+    {
+      "id": 13,
+      "type": "D2 Save PSD",
+      "pos": [1400, 320],
+      "size": [315, 150],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {"name": "psd", "type": "PSD", "link": 17}
+      ],
+      "outputs": [],
+      "properties": {"Node name for S&R": "D2 Save PSD"},
+      "widgets_values": ["d2_sam_psd_batch_glsl/ComfyUI", "single_file", "_mask_", "simple"]
+    },
+    {
+      "id": 14,
+      "type": "PreviewImage",
+      "pos": [1400, 40],
+      "size": [300, 260],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {"name": "images", "type": "IMAGE", "link": 18}
+      ],
+      "outputs": [],
+      "properties": {"Node name for S&R": "PreviewImage"},
+      "widgets_values": []
+    }
+  ],
+  "links": [
+    [1, 1, 0, 4, 0, "MODEL"],
+    [2, 1, 1, 3, 0, "CLIP"],
+    [3, 2, 0, 4, 1, "IMAGE"],
+    [4, 3, 0, 4, 2, "CONDITIONING"],
+    [5, 4, 0, 5, 0, "MASK"],
+    [6, 5, 0, 6, 0, "IMAGE"],
+    [7, 4, 1, 7, 0, "BOUNDING_BOX"],
+    [8, 2, 0, 7, 1, "IMAGE"],
+    [9, 7, 0, 8, 0, "IMAGE"],
+    [10, 2, 0, 9, 0, "IMAGE"],
+    [11, 2, 0, 10, 1, "IMAGE"],
+    [12, 4, 0, 10, 2, "MASK"],
+    [13, 9, 1, 10, 3, "PSD"],
+    [14, 10, 0, 11, 0, "IMAGE"],
+    [15, 10, 1, 12, 3, "PSD"],
+    [16, 11, 0, 12, 1, "IMAGE"],
+    [17, 12, 1, 13, 1, "PSD"],
+    [18, 12, 0, 14, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {"scale": 0.75, "offset": [150, 200]}
+  },
+  "version": 0.4
+}
