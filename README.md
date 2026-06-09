@@ -75,7 +75,7 @@ Writes incoming images or a connected `PSD` stack to a Photoshop PSD.
 
 Inputs:
 
-- `images`: An `IMAGE` or batched `IMAGE` input.
+- `images`: Optional `IMAGE` or batched `IMAGE` input. With no `PSD`, this writes one layer for a single image or one layer per batch item.
 - `filename_prefix`: Same style as ComfyUI's built-in `Save Image` node.
 - `file_mode`: `single_file` writes a batch as layers in one PSD; `multi_file` writes one PSD per image.
 - `alpha_name`: Kept for workflow compatibility. This fork writes native masks, so it does not create separate alpha layers.
@@ -86,17 +86,17 @@ Native masks are created when the incoming image has an alpha channel. The easie
 
 ### D2 Image Composite PSD
 
-Composites like the Essentials `ImageComposite+` node while also building a parallel non-destructive `PSD` stack.
+Composites like the Essentials `ImageComposite+` node while also building a parallel non-destructive `PSD` stack. The image inputs are intentionally optional so the node can also convert loose images and masks into the PSD track.
 
 Use the `IMAGE` output exactly like a normal flat composite. Daisy-chain the `PSD` output into the next `D2 Image Composite PSD` node's optional `psd` input, then connect the final `PSD` output to `D2 Save PSD`.
 
 Inputs:
 
-- `destination`: The flat image canvas to composite onto.
-- `source`: The image layer to place.
+- `destination`: Optional flat image canvas to composite onto. By itself it becomes a background PSD layer.
+- `source`: Optional image layer to place. By itself it becomes a PSD image layer. Batched sources are expanded into separate PSD layers.
 - `x`, `y`: Position of the source on the destination canvas.
 - `offset_x`, `offset_y`: Extra offsets, matching the Essentials `ImageComposite+` style.
-- `mask`: Optional mask. If omitted, the source is fully visible inside its placed bounds.
+- `mask`: Optional mask. With `source`, it masks the source layer. By itself it creates a transparent 0-opacity PSD layer carrying the mask. With `destination`, it does not mask the destination; it adds that transparent mask layer above the destination. Batched masks are expanded into separate PSD layers, repeating a single source image when needed.
 - `psd`: Optional carried PSD stack from a previous `D2 Image Composite PSD`.
 
 Outputs:
