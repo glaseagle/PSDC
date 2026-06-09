@@ -9,6 +9,7 @@ from psd_tools import PSDImage
 
 
 MAX_RESOLUTION = 16384
+PSD_STACK_TYPE = "D2_PSD_STACK"
 
 
 def tensor_to_uint8_array(tensor):
@@ -24,6 +25,10 @@ def tensor_to_uint8_array(tensor):
         array = np.clip(array, 0, 255).astype(np.uint8)
 
     return array
+
+
+def clone_for_psd(tensor):
+    return tensor.detach().cpu().clone()
 
 
 def create_pil_from_tensor(img_tensor, with_alpha=True):
@@ -108,6 +113,201 @@ def normalize_positions(value, batch_size, offset):
     return [int(position + offset) for position in positions[:batch_size]]
 
 
+def visible_bounds(x, y, source_width, source_height, canvas_width, canvas_height):
+    source_x1 = max(0, -x)
+    source_y1 = max(0, -y)
+    dest_x1 = max(0, x)
+    dest_y1 = max(0, y)
+
+    visible_width = min(source_width - source_x1, canvas_width - dest_x1)
+    visible_height = min(source_height - source_y1, canvas_height - dest_y1)
+
+    if visible_width <= 0 or visible_height <= 0:
+        return None
+
+    return (
+        source_x1,
+        source_y1,
+        source_x1 + visible_width,
+        source_y1 + visible_height,
+        dest_x1,
+        dest_y1,
+        dest_x1 + visible_width,
+        dest_y1 + visible_height,
+    )
+
+
+def composite_tensors(destination, source, mask, x_positions, y_positions):
+    output = destination[..., :3].clone()
+    source_rgb = source[..., :3]
+    canvas_height = output.shape[1]
+    canvas_width = output.shape[2]
+
+    for index in range(output.shape[0]):
+        bounds = visible_bounds(
+            x_positions[index],
+            y_positions[index],
+            source_rgb.shape[2],
+            source_rgb.shape[1],
+            canvas_width,
+            canvas_height,
+        )
+        if bounds is None:
+            continue
+
+        source_x1, source_y1, source_x2, source_y2, dest_x1, dest_y1, dest_x2, dest_y2 = bounds
+        source_pixels = source_rgb[index, source_y1:source_y2, source_x1:source_x2, :]
+        mask_pixels = mask[index, source_y1:source_y2, source_x1:source_x2].unsqueeze(-1)
+        destination_pixels = output[index, dest_y1:dest_y2, dest_x1:dest_x2, :]
+
+        output[index, dest_y1:dest_y2, dest_x1:dest_x2, :] = (
+            source_pixels * mask_pixels + destination_pixels * (1.0 - mask_pixels)
+        )
+
+    return output.clamp(0.0, 1.0)
+
+
+def create_psd_stack_from_destination(destination):
+    destination = destination[..., :3]
+    batch_size = destination.shape[0]
+    return {
+        "type": PSD_STACK_TYPE,
+        "version": 1,
+        "width": int(destination.shape[2]),
+        "height": int(destination.shape[1]),
+        "batch_size": int(batch_size),
+        "layers": [
+            {
+                "name": "Background",
+                "image": clone_for_psd(destination),
+                "mask": None,
+                "x": [0] * batch_size,
+                "y": [0] * batch_size,
+            }
+        ],
+    }
+
+
+def is_psd_stack(psd):
+    return isinstance(psd, dict) and psd.get("type") == PSD_STACK_TYPE and "layers" in psd
+
+
+def copy_psd_stack(psd):
+    return {
+        **psd,
+        "layers": [dict(layer) for layer in psd.get("layers", [])],
+    }
+
+
+def match_position_list(positions, batch_size):
+    if len(positions) >= batch_size:
+        return positions[:batch_size]
+    return positions + [positions[-1]] * (batch_size - len(positions))
+
+
+def match_psd_stack_batch_size(psd, batch_size):
+    if psd.get("batch_size") == batch_size:
+        return copy_psd_stack(psd)
+
+    psd = copy_psd_stack(psd)
+    psd["batch_size"] = int(batch_size)
+    layers = []
+
+    for layer in psd["layers"]:
+        matched_layer = dict(layer)
+        matched_layer["image"] = match_batch_size(layer["image"], batch_size)
+        if layer.get("mask") is not None:
+            matched_layer["mask"] = match_batch_size(layer["mask"], batch_size)
+        matched_layer["x"] = match_position_list(list(layer.get("x", [0])), batch_size)
+        matched_layer["y"] = match_position_list(list(layer.get("y", [0])), batch_size)
+        layers.append(matched_layer)
+
+    psd["layers"] = layers
+    return psd
+
+
+def prepare_psd_stack(psd, destination):
+    width = int(destination.shape[2])
+    height = int(destination.shape[1])
+    batch_size = int(destination.shape[0])
+
+    if not is_psd_stack(psd) or psd.get("width") != width or psd.get("height") != height:
+        return create_psd_stack_from_destination(destination)
+
+    return match_psd_stack_batch_size(psd, batch_size)
+
+
+def append_composite_layer_to_psd(psd, source, mask, x_positions, y_positions):
+    psd = copy_psd_stack(psd)
+    layer_number = sum(1 for layer in psd["layers"] if layer.get("name") != "Background") + 1
+    psd["layers"].append(
+        {
+            "name": f"Layer {layer_number}",
+            "image": clone_for_psd(source[..., :3]),
+            "mask": clone_for_psd(mask),
+            "x": [int(x) for x in x_positions],
+            "y": [int(y) for y in y_positions],
+        }
+    )
+    return psd
+
+
+def select_batch_item(tensor, index):
+    if tensor.shape[0] == 0:
+        raise ValueError("PSD layer tensor has an empty batch.")
+    return tensor[min(index, tensor.shape[0] - 1)]
+
+
+def layer_to_pil(layer, batch_index, width, height):
+    image_tensor = select_batch_item(layer["image"], batch_index)
+    image_array = tensor_to_uint8_array(image_tensor)[..., :3]
+    mask_tensor = layer.get("mask")
+
+    if mask_tensor is None:
+        rgb_canvas = image_array
+        if rgb_canvas.shape[0] != height or rgb_canvas.shape[1] != width:
+            rgb_image = Image.fromarray(rgb_canvas, "RGB").resize((width, height), Image.Resampling.BICUBIC)
+            return rgb_image, None, False
+        return Image.fromarray(rgb_canvas, "RGB"), None, False
+
+    mask_array = tensor_to_uint8_array(select_batch_item(mask_tensor, batch_index))
+    if mask_array.ndim == 3:
+        mask_array = mask_array[..., 0]
+
+    rgb_canvas = np.zeros((height, width, 3), dtype=np.uint8)
+    alpha_canvas = np.zeros((height, width), dtype=np.uint8)
+    x_positions = match_position_list(list(layer.get("x", [0])), batch_index + 1)
+    y_positions = match_position_list(list(layer.get("y", [0])), batch_index + 1)
+
+    bounds = visible_bounds(
+        int(x_positions[batch_index]),
+        int(y_positions[batch_index]),
+        image_array.shape[1],
+        image_array.shape[0],
+        width,
+        height,
+    )
+
+    if bounds is not None:
+        source_x1, source_y1, source_x2, source_y2, dest_x1, dest_y1, dest_x2, dest_y2 = bounds
+        rgb_canvas[dest_y1:dest_y2, dest_x1:dest_x2, :] = image_array[source_y1:source_y2, source_x1:source_x2, :]
+        alpha_canvas[dest_y1:dest_y2, dest_x1:dest_x2] = mask_array[source_y1:source_y2, source_x1:source_x2]
+
+    return Image.fromarray(rgb_canvas, "RGB"), Image.fromarray(alpha_canvas, "L"), True
+
+
+def create_psd_image_from_stack(psd_stack, batch_index=0):
+    width = int(psd_stack["width"])
+    height = int(psd_stack["height"])
+    psd = PSDImage.new("RGB", (width, height))
+
+    for layer in reversed(psd_stack["layers"]):
+        rgb_image, alpha_mask, has_alpha = layer_to_pil(layer, batch_index, width, height)
+        append_pixel_layer_with_mask(psd, rgb_image, alpha_mask, layer["name"], has_alpha)
+
+    return psd
+
+
 class D2_ApplyAlphaChannel:
     @classmethod
     def INPUT_TYPES(cls):
@@ -188,6 +388,54 @@ class D2_ApplyAlphaChannel:
         return (output,)
 
 
+class D2_ImageCompositePSD:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "destination": ("IMAGE",),
+                "source": ("IMAGE",),
+                "x": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1}),
+                "y": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1}),
+                "offset_x": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1}),
+                "offset_y": ("INT", {"default": 0, "min": -MAX_RESOLUTION, "max": MAX_RESOLUTION, "step": 1}),
+            },
+            "optional": {
+                "mask": ("MASK",),
+                "psd": ("PSD",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "PSD")
+    RETURN_NAMES = ("image", "psd")
+    FUNCTION = "execute"
+    CATEGORY = "D2/Image"
+
+    def execute(self, destination, source, x, y, offset_x, offset_y, mask=None, psd=None):
+        batch_size = source.shape[0]
+        destination = match_batch_size(destination, batch_size)
+        source = source[..., :3]
+
+        if mask is None:
+            mask = torch.ones(
+                (batch_size, source.shape[1], source.shape[2]),
+                dtype=source.dtype,
+                device=source.device,
+            )
+        else:
+            mask = normalize_mask_batch(mask, batch_size).to(dtype=source.dtype, device=source.device)
+            mask = resize_mask_to_image(mask, source)
+
+        x_positions = normalize_positions(x, batch_size, offset_x)
+        y_positions = normalize_positions(y, batch_size, offset_y)
+
+        image = composite_tensors(destination, source, mask, x_positions, y_positions)
+        psd_stack = prepare_psd_stack(psd, destination)
+        psd_stack = append_composite_layer_to_psd(psd_stack, source, mask, x_positions, y_positions)
+
+        return (image, psd_stack)
+
+
 class D2_SavePSD:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
@@ -201,7 +449,10 @@ class D2_SavePSD:
                 "file_mode": (["multi_file", "single_file"],),
                 "alpha_name": ("STRING", {"default": "_mask_"}),
                 "alpha_name_mode": (["simple", "suffix"],),
-            }
+            },
+            "optional": {
+                "psd": ("PSD",),
+            },
         }
 
     RETURN_TYPES = ()
@@ -209,7 +460,13 @@ class D2_SavePSD:
     OUTPUT_NODE = True
     CATEGORY = "D2/Image"
 
-    def save_rgba_psd(self, images, filename_prefix, file_mode, alpha_name="_mask_", alpha_name_mode="simple"):
+    def save_rgba_psd(self, images, filename_prefix, file_mode, alpha_name="_mask_", alpha_name_mode="simple", psd=None):
+        if is_psd_stack(psd):
+            try:
+                return self.save_psd_stack(psd, filename_prefix, file_mode)
+            except Exception as error:
+                logging.warning("Falling back to legacy image PSD save after PSD stack error: %s", str(error))
+
         full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
             filename_prefix,
             self.output_dir,
@@ -259,6 +516,42 @@ class D2_SavePSD:
 
         return {}
 
+    def save_psd_stack(self, psd_stack, filename_prefix, file_mode):
+        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
+            filename_prefix,
+            self.output_dir,
+            int(psd_stack["width"]),
+            int(psd_stack["height"]),
+        )
+
+        batch_size = int(psd_stack.get("batch_size", 1))
+
+        try:
+            if file_mode == "single_file":
+                file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
+                psd_image = create_psd_image_from_stack(psd_stack, 0)
+                psd_image.save(os.path.join(full_output_folder, file))
+                logging.info("PSD stack file was successfully saved: %s", file)
+
+                if batch_size > 1:
+                    logging.info(
+                        "PSD stack had %s batch entries; single_file mode saved batch 0 only. "
+                        "Use multi_file to save every PSD stack entry.",
+                        batch_size,
+                    )
+            else:
+                for batch_number in range(batch_size):
+                    file = f"{filename.replace('%batch_num%', str(batch_number))}_{counter:05}_{batch_number}.psd"
+                    psd_image = create_psd_image_from_stack(psd_stack, batch_number)
+                    psd_image.save(os.path.join(full_output_folder, file))
+                    logging.info("PSD stack file %s/%s was successfully saved: %s", batch_number + 1, batch_size, file)
+
+        except Exception as error:
+            logging.warning("Error occurred while saving PSD stack: %s", str(error))
+            raise
+
+        return {}
+
 
 class D2_ExtractAlpha:
     @classmethod
@@ -301,6 +594,14 @@ class D2_ExtractAlpha:
 
 NODE_CLASS_MAPPINGS = {
     "D2 Apply Alpha Channel": D2_ApplyAlphaChannel,
+    "D2 Image Composite PSD": D2_ImageCompositePSD,
     "D2 Save PSD": D2_SavePSD,
     "D2 Extract Alpha": D2_ExtractAlpha,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "D2 Apply Alpha Channel": "D2 Apply Alpha Channel",
+    "D2 Image Composite PSD": "D2 Image Composite PSD",
+    "D2 Save PSD": "D2 Save PSD",
+    "D2 Extract Alpha": "D2 Extract Alpha",
 }
