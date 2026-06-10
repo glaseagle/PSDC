@@ -120,6 +120,7 @@ Upload behavior:
 - The node includes a `Choose PSD` button that uploads a local `.psd` into `ComfyUI/input` and selects it.
 - Dragging a `.psd` file onto a `PSD Load` node uploads it and selects it.
 - Dragging a `.psd` file onto the Comfy canvas uploads it and creates a populated `PSD Load` node.
+- PSDC uses its own PSD upload endpoint so large layered PSD files do not hit ComfyUI's regular image upload size path.
 
 Outputs:
 

@@ -34,10 +34,10 @@ async function uploadPsd(file) {
     }
 
     const body = new FormData();
-    body.append("image", file, file.name);
-    body.append("type", "input");
+    body.append("overwrite", "false");
+    body.append("psd", file, file.name);
 
-    const response = await fetch("/upload/image", {
+    const response = await fetch("/psdc/upload/psd", {
         method: "POST",
         body,
     });
