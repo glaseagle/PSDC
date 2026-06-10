@@ -90,6 +90,8 @@ Composites like the Essentials `ImageComposite+` node while also building a para
 
 Use the `IMAGE` output exactly like a normal flat composite. Daisy-chain the `PSD` output into the next `PSDC Image Composite PSD` node's optional `psd` input, then connect the final `PSD` output to `PSDC Save PSD`.
 
+When a connected source, destination, mask, or PSD would exceed the current canvas, PSDC expands to the largest needed canvas before compositing. Existing PSD stack contents are scaled proportionally into the larger canvas so the flat `IMAGE` output and non-destructive `PSD` output stay in parity.
+
 Inputs:
 
 - `destination`: Optional flat image canvas to composite onto. By itself it becomes a background PSD layer. With a connected `PSD`, it is added as a new higher image layer instead of replacing the PSD base.
@@ -130,6 +132,22 @@ Outputs:
 
 - `image`: The flat result after adding the new layer or layers.
 - `psd`: The updated PSD stack.
+
+### PSDC PSD Layer Combine
+
+Combines layers from two or more `PSD` inputs into one stack.
+
+Inputs:
+
+- `psd_1`, `psd_2`: Required PSD stacks. Layers from `psd_1` are kept below layers from `psd_2`.
+- `psd_3` through `psd_8`: Optional extra PSD stacks, added in input order above the previous stack.
+
+Outputs:
+
+- `image`: The flattened combined PSD.
+- `psd`: A combined non-destructive PSD stack.
+
+If the input PSDs have different canvas sizes, the output uses the largest needed canvas. Smaller PSD stacks are scaled proportionally into that canvas before their layers are added.
 
 ### PSDC Apply Alpha Channel
 

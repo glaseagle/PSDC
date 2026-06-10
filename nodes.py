@@ -267,6 +267,134 @@ def match_psd_stack_batch_size(psd, batch_size):
     return psd
 
 
+def resize_image_tensor(tensor, height, width):
+    if tensor.shape[1:3] == (height, width):
+        return clone_for_psd(tensor)
+
+    resized = torch.nn.functional.interpolate(
+        tensor.permute(0, 3, 1, 2).float(),
+        size=(height, width),
+        mode="bicubic",
+        align_corners=False,
+    ).permute(0, 2, 3, 1)
+    return resized.clamp(0.0, 1.0).to(dtype=tensor.dtype)
+
+
+def resize_mask_tensor(mask, height, width):
+    if mask.shape[1:3] == (height, width):
+        return clone_for_psd(mask)
+
+    resized = torch.nn.functional.interpolate(
+        mask.unsqueeze(1).float(),
+        size=(height, width),
+        mode="bicubic",
+        align_corners=False,
+    ).squeeze(1)
+    return resized.clamp(0.0, 1.0).to(dtype=mask.dtype)
+
+
+def fit_image_batch_to_canvas(image, width, height):
+    image = image[..., :3]
+    old_height = int(image.shape[1])
+    old_width = int(image.shape[2])
+    if old_width == width and old_height == height:
+        return image.clone()
+
+    scale = min(width / max(1, old_width), height / max(1, old_height))
+    scale = max(scale, 1.0)
+    new_height = max(1, int(round(old_height * scale)))
+    new_width = max(1, int(round(old_width * scale)))
+    resized = resize_image_tensor(image, new_height, new_width)
+    canvas = torch.zeros((image.shape[0], height, width, 3), dtype=image.dtype, device=image.device)
+    canvas[:, : min(new_height, height), : min(new_width, width), :] = resized[
+        :, : min(new_height, height), : min(new_width, width), :
+    ]
+    return canvas
+
+
+def scale_position_list(positions, batch_size, scale):
+    positions = match_position_list(list(positions), batch_size)
+    return [int(round(position * scale)) for position in positions]
+
+
+def resize_psd_stack_to_canvas(psd, width, height, batch_size=None):
+    if not is_psd_stack(psd):
+        return create_empty_psd_stack(width, height, batch_size or 1)
+
+    if batch_size is None:
+        batch_size = int(psd.get("batch_size", 1))
+
+    psd = match_psd_stack_batch_size(psd, batch_size)
+    old_width = max(1, int(psd.get("width", width)))
+    old_height = max(1, int(psd.get("height", height)))
+
+    width = max(int(width), old_width)
+    height = max(int(height), old_height)
+
+    if old_width == width and old_height == height:
+        return psd
+
+    scale = min(width / old_width, height / old_height)
+    scale = max(scale, 1.0)
+    resized = copy_psd_stack(psd)
+    resized["width"] = int(width)
+    resized["height"] = int(height)
+    resized["batch_size"] = int(batch_size)
+    layers = []
+
+    for layer in resized["layers"]:
+        new_layer = dict(layer)
+        image = layer["image"]
+        new_layer_height = max(1, int(round(image.shape[1] * scale)))
+        new_layer_width = max(1, int(round(image.shape[2] * scale)))
+        new_layer["image"] = resize_image_tensor(image, new_layer_height, new_layer_width)
+        if layer.get("mask") is not None:
+            new_layer["mask"] = resize_mask_tensor(layer["mask"], new_layer_height, new_layer_width)
+        new_layer["x"] = scale_position_list(layer.get("x", [0]), batch_size, scale)
+        new_layer["y"] = scale_position_list(layer.get("y", [0]), batch_size, scale)
+        layers.append(new_layer)
+
+    resized["layers"] = layers
+    return resized
+
+
+def layer_required_canvas(width, height, layer_width, layer_height, x_positions=None, y_positions=None):
+    if x_positions is None:
+        x_positions = [0]
+    if y_positions is None:
+        y_positions = [0]
+
+    for x_position, y_position in zip(x_positions, y_positions):
+        width = max(width, int(max(0, x_position)) + int(layer_width))
+        height = max(height, int(max(0, y_position)) + int(layer_height))
+
+    return int(width), int(height)
+
+
+def composite_target_canvas(base_width, base_height, destination=None, source=None, mask=None, x_positions=None, y_positions=None):
+    width = int(base_width)
+    height = int(base_height)
+
+    if destination is not None:
+        width = max(width, int(destination.shape[2]))
+        height = max(height, int(destination.shape[1]))
+
+    if source is not None:
+        width, height = layer_required_canvas(
+            width,
+            height,
+            int(source.shape[2]),
+            int(source.shape[1]),
+            x_positions,
+            y_positions,
+        )
+    elif mask is not None:
+        mask_height, mask_width = get_mask_size(mask)
+        width, height = layer_required_canvas(width, height, mask_width, mask_height, x_positions, y_positions)
+
+    return int(width), int(height)
+
+
 def prepare_psd_stack(psd, width, height, batch_size, destination=None):
     if not is_psd_stack(psd) or psd.get("width") != width or psd.get("height") != height:
         if destination is not None:
@@ -304,11 +432,28 @@ def layer_to_pil(layer, batch_index, width, height):
     mask_tensor = layer.get("mask")
 
     if mask_tensor is None:
-        rgb_canvas = image_array
-        if rgb_canvas.shape[0] != height or rgb_canvas.shape[1] != width:
-            rgb_image = Image.fromarray(rgb_canvas, "RGB").resize((width, height), Image.Resampling.BICUBIC)
-            return rgb_image, None, False, int(layer.get("opacity", 255))
-        return Image.fromarray(rgb_canvas, "RGB"), None, False, int(layer.get("opacity", 255))
+        x_positions = match_position_list(list(layer.get("x", [0])), batch_index + 1)
+        y_positions = match_position_list(list(layer.get("y", [0])), batch_index + 1)
+        x_position = int(x_positions[batch_index])
+        y_position = int(y_positions[batch_index])
+        if image_array.shape[0] == height and image_array.shape[1] == width and x_position == 0 and y_position == 0:
+            return Image.fromarray(image_array, "RGB"), None, False, int(layer.get("opacity", 255))
+
+        rgb_canvas = np.zeros((height, width, 3), dtype=np.uint8)
+        alpha_canvas = np.zeros((height, width), dtype=np.uint8)
+        bounds = visible_bounds(
+            x_position,
+            y_position,
+            image_array.shape[1],
+            image_array.shape[0],
+            width,
+            height,
+        )
+        if bounds is not None:
+            source_x1, source_y1, source_x2, source_y2, dest_x1, dest_y1, dest_x2, dest_y2 = bounds
+            rgb_canvas[dest_y1:dest_y2, dest_x1:dest_x2, :] = image_array[source_y1:source_y2, source_x1:source_x2, :]
+            alpha_canvas[dest_y1:dest_y2, dest_x1:dest_x2] = 255
+        return Image.fromarray(rgb_canvas, "RGB"), Image.fromarray(alpha_canvas, "L"), True, int(layer.get("opacity", 255))
 
     mask_array = tensor_to_uint8_array(select_batch_item(mask_tensor, batch_index))
     if mask_array.ndim == 3:
@@ -417,10 +562,15 @@ class PSDC_ApplyAlphaChannel:
             return (output,)
 
         destination = match_batch_size(destination, batch_size)
-        canvas_height = destination.shape[1]
-        canvas_width = destination.shape[2]
         x_positions = normalize_positions(x, batch_size, offset_x)
         y_positions = normalize_positions(y, batch_size, offset_y)
+        canvas_width, canvas_height = composite_target_canvas(
+            int(destination.shape[2]),
+            int(destination.shape[1]),
+            source=source,
+            x_positions=x_positions,
+            y_positions=y_positions,
+        )
 
         output = torch.zeros(
             (batch_size, canvas_height, canvas_width, 4),
@@ -486,6 +636,9 @@ class PSDC_ImageCompositePSD:
         source_layer_count = max(source_count, mask_count)
         destination_layer_count = destination_count if psd_connected and destination is not None else 0
         batch_to_layers = max(destination_layer_count, source_layer_count) > 1
+        target_position_count = max(source_layer_count, 1) if batch_to_layers else max(source_count, mask_count, 1)
+        target_x_positions = normalize_positions(x, target_position_count, offset_x)
+        target_y_positions = normalize_positions(y, target_position_count, offset_y)
 
         if source is not None:
             dtype = source.dtype
@@ -505,8 +658,8 @@ class PSDC_ImageCompositePSD:
             return (empty, create_empty_psd_stack(1, 1, 1))
 
         if psd_connected:
-            width = int(psd["width"])
-            height = int(psd["height"])
+            base_width = int(psd["width"])
+            base_height = int(psd["height"])
             batch_size = 1 if batch_to_layers else max(
                 int(psd.get("batch_size", 1)),
                 destination_count,
@@ -514,23 +667,53 @@ class PSDC_ImageCompositePSD:
                 mask_count,
                 1,
             )
-            psd_stack = match_psd_stack_batch_size(psd, batch_size)
+            width, height = composite_target_canvas(
+                base_width,
+                base_height,
+                destination=destination,
+                source=source,
+                mask=mask,
+                x_positions=target_x_positions,
+                y_positions=target_y_positions,
+            )
+            psd_stack = resize_psd_stack_to_canvas(psd, width, height, batch_size)
             image = flatten_psd_stack(psd_stack, dtype=dtype, device=device)
         else:
             batch_size = 1 if batch_to_layers else max(destination_count, source_count, mask_count, 1)
             if destination is not None:
-                width = int(destination.shape[2])
-                height = int(destination.shape[1])
+                base_width = int(destination.shape[2])
+                base_height = int(destination.shape[1])
+                width, height = composite_target_canvas(
+                    base_width,
+                    base_height,
+                    source=source,
+                    mask=mask,
+                    x_positions=target_x_positions,
+                    y_positions=target_y_positions,
+                )
                 base_image = match_batch_size(destination[..., :3], batch_size).to(dtype=dtype, device=device)
+                base_image = fit_image_batch_to_canvas(base_image, width, height)
                 psd_stack = create_psd_stack_from_destination(base_image)
                 image = base_image.clone()
             elif source is not None:
-                width = int(source.shape[2])
-                height = int(source.shape[1])
+                width, height = composite_target_canvas(
+                    int(source.shape[2]),
+                    int(source.shape[1]),
+                    source=source,
+                    x_positions=target_x_positions,
+                    y_positions=target_y_positions,
+                )
                 psd_stack = create_empty_psd_stack(width, height, batch_size)
                 image = torch.zeros((batch_size, height, width, 3), dtype=dtype, device=device)
             else:
                 height, width = get_mask_size(mask)
+                width, height = composite_target_canvas(
+                    width,
+                    height,
+                    mask=mask,
+                    x_positions=target_x_positions,
+                    y_positions=target_y_positions,
+                )
                 psd_stack = create_empty_psd_stack(width, height, batch_size)
                 image = torch.zeros((batch_size, height, width, 3), dtype=dtype, device=device)
 
@@ -791,6 +974,48 @@ class PSDC_ImageToPSD:
         return PSDC_ImageCompositePSD().execute(0, 0, 0, 0, source=image, mask=mask, psd=psd)
 
 
+class PSDC_PSDLayerCombine:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "psd_1": ("PSD",),
+                "psd_2": ("PSD",),
+            },
+            "optional": {
+                "psd_3": ("PSD",),
+                "psd_4": ("PSD",),
+                "psd_5": ("PSD",),
+                "psd_6": ("PSD",),
+                "psd_7": ("PSD",),
+                "psd_8": ("PSD",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "PSD")
+    RETURN_NAMES = ("image", "psd")
+    FUNCTION = "execute"
+    CATEGORY = "PSDC/Image"
+
+    def execute(self, psd_1, psd_2, psd_3=None, psd_4=None, psd_5=None, psd_6=None, psd_7=None, psd_8=None):
+        stacks = [psd for psd in (psd_1, psd_2, psd_3, psd_4, psd_5, psd_6, psd_7, psd_8) if is_psd_stack(psd)]
+
+        if not stacks:
+            empty = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
+            return (empty, create_empty_psd_stack(1, 1, 1))
+
+        width = max(int(stack["width"]) for stack in stacks)
+        height = max(int(stack["height"]) for stack in stacks)
+        batch_size = max(int(stack.get("batch_size", 1)) for stack in stacks)
+        combined = create_empty_psd_stack(width, height, batch_size)
+
+        for stack in stacks:
+            resized_stack = resize_psd_stack_to_canvas(stack, width, height, batch_size)
+            combined["layers"].extend([dict(layer) for layer in resized_stack.get("layers", [])])
+
+        return (flatten_psd_stack(combined), combined)
+
+
 class PSDC_SavePSD:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
@@ -956,6 +1181,7 @@ NODE_CLASS_MAPPINGS = {
     "PSDC Image Composite PSD": PSDC_ImageCompositePSD,
     "PSD Load": PSDC_PSDLoad,
     "PSDC Image To PSD": PSDC_ImageToPSD,
+    "PSDC PSD Layer Combine": PSDC_PSDLayerCombine,
     "PSDC Save PSD": PSDC_SavePSD,
     "PSDC Extract Alpha": PSDC_ExtractAlpha,
 }
@@ -965,6 +1191,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PSDC Image Composite PSD": "PSDC Image Composite PSD",
     "PSD Load": "PSD Load",
     "PSDC Image To PSD": "PSDC Image To PSD",
+    "PSDC PSD Layer Combine": "PSDC PSD Layer Combine",
     "PSDC Save PSD": "PSDC Save PSD",
     "PSDC Extract Alpha": "PSDC Extract Alpha",
 }
