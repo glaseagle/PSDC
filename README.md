@@ -114,6 +114,13 @@ Inputs:
 
 - `psd_file`: Dropdown of `.psd` files in your ComfyUI `input` folder. Each top-level Photoshop layer becomes a layer in the `PSD` stack, with its mask and position preserved.
 
+Upload behavior:
+
+- The dropdown lists files that already exist in `ComfyUI/input`.
+- The node includes a `Choose PSD` button that uploads a local `.psd` into `ComfyUI/input` and selects it.
+- Dragging a `.psd` file onto a `PSD Load` node uploads it and selects it.
+- Dragging a `.psd` file onto the Comfy canvas uploads it and creates a populated `PSD Load` node.
+
 Outputs:
 
 - `psd`: The loaded Photoshop layer stack.

@@ -1300,7 +1300,10 @@ class PSDC_PSDLoad:
             files = [f for f in os.listdir(input_dir) if f.lower().endswith(".psd")]
         return {
             "required": {
-                "psd_file": (sorted(files),),
+                "psd_file": (
+                    sorted(files),
+                    {"tooltip": "PSD files in the ComfyUI input folder. You can also drag/drop a PSD or use the node's Choose PSD button."},
+                ),
             },
         }
 
