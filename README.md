@@ -191,6 +191,18 @@ JSON object format:
 
 For LLM edits, target layers by `index_path` or `id`, preserve the `schema`, and only change the relevant metadata fields. `adjustments` contains Photoshop adjustment/fill tagged blocks such as `CURVES` or `GRADIENT_FILL_SETTING`; `effects` contains parsed layer effects when available; `effect_descriptors` contains raw effect tagged blocks; `descriptors` contains non-adjustment Photoshop metadata such as smart object or placed layer descriptors; `children` preserves group nesting.
 
+### PSDC Preview PSD
+
+Flattens a `PSD` stack and displays it in ComfyUI like the built-in `Preview Image` node. It writes temporary PNG previews only; it does not save a PSD file and it has no output sockets.
+
+Inputs:
+
+- `psd`: A PSDC `PSD` stack to flatten for preview.
+
+Outputs:
+
+- None. The preview appears in the node UI/history as temporary images.
+
 ### PSDC Image To PSD
 
 Converts a loose `IMAGE` or `IMAGE` plus `MASK` into the PSD track without setting up a full composite node.

@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 from enum import Enum as PyEnum
 
 import folder_paths
@@ -1420,6 +1421,59 @@ class PSDC_PSDStructureJSON:
         return (json.dumps(structure, indent=indent, ensure_ascii=False),)
 
 
+class PSDC_PreviewPSD:
+    def __init__(self):
+        self.output_dir = folder_paths.get_temp_directory()
+        self.type = "temp"
+        self.prefix_append = "_temp_" + "".join(random.choice("abcdefghijklmnopqrstupvxyz") for _ in range(5))
+        self.compress_level = 1
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "psd": ("PSD",),
+            },
+            "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+        }
+
+    RETURN_TYPES = ()
+    FUNCTION = "preview_psd"
+    OUTPUT_NODE = True
+    CATEGORY = "PSDC/Image"
+
+    def preview_psd(self, psd, prompt=None, extra_pnginfo=None):
+        if not is_psd_stack(psd):
+            logging.warning("PSDC Preview PSD received an invalid PSD stack; nothing was previewed.")
+            return {}
+
+        images = flatten_psd_stack(psd)
+        filename_prefix = "PSDC_Preview" + self.prefix_append
+        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(
+            filename_prefix,
+            self.output_dir,
+            images[0].shape[1],
+            images[0].shape[0],
+        )
+
+        results = []
+        for batch_number, image in enumerate(images):
+            array = 255.0 * image.detach().cpu().numpy()
+            img = Image.fromarray(np.clip(array, 0, 255).astype(np.uint8))
+            file = f"{filename.replace('%batch_num%', str(batch_number))}_{counter:05}_.png"
+            img.save(os.path.join(full_output_folder, file), compress_level=self.compress_level)
+            results.append(
+                {
+                    "filename": file,
+                    "subfolder": subfolder,
+                    "type": self.type,
+                }
+            )
+            counter += 1
+
+        return {"ui": {"images": results}}
+
+
 class PSDC_SavePSD:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
@@ -1587,6 +1641,7 @@ NODE_CLASS_MAPPINGS = {
     "PSDC Image To PSD": PSDC_ImageToPSD,
     "PSDC PSD Layer Combine": PSDC_PSDLayerCombine,
     "PSDC PSD Structure JSON": PSDC_PSDStructureJSON,
+    "PSDC Preview PSD": PSDC_PreviewPSD,
     "PSDC Save PSD": PSDC_SavePSD,
     "PSDC Extract Alpha": PSDC_ExtractAlpha,
 }
@@ -1598,6 +1653,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PSDC Image To PSD": "PSDC Image To PSD",
     "PSDC PSD Layer Combine": "PSDC PSD Layer Combine",
     "PSDC PSD Structure JSON": "PSDC PSD Structure JSON",
+    "PSDC Preview PSD": "PSDC Preview PSD",
     "PSDC Save PSD": "PSDC Save PSD",
     "PSDC Extract Alpha": "PSDC Extract Alpha",
 }
