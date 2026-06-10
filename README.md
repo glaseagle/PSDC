@@ -243,6 +243,8 @@ Outputs:
 
 Layers are added in socket order from bottom to top. If the input PSDs have different canvas sizes, the output uses the largest needed canvas. Smaller PSD stacks are scaled proportionally into that canvas before their layers are added.
 
+On older ComfyUI versions without dynamic socket support, the node falls back to fixed `psd_1` through `psd_8` inputs.
+
 ### PSDC Apply Alpha Channel
 
 Combines an `IMAGE` and a `MASK` into one RGBA image. With an optional `destination` connected, it places the image and mask onto that larger canvas using `x`, `y`, `offset_x`, and `offset_y`, filling the rest of the alpha/mask channel with black.

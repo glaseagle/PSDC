@@ -8,14 +8,21 @@ from enum import Enum as PyEnum
 import folder_paths
 import numpy as np
 import torch
-from comfy_api.latest import io
 from PIL import Image
 from psd_tools import PSDImage
 
+try:
+    # The v3 node API (and its Autogrow dynamic inputs) only exists on newer
+    # ComfyUI builds. Older versions fall back to a fixed-socket combine node
+    # instead of failing to import the whole pack.
+    from comfy_api.latest import io
+except ImportError:
+    io = None
+
+HAS_AUTOGROW = io is not None and hasattr(io, "Autogrow")
 
 MAX_RESOLUTION = 16384
 PSD_STACK_TYPE = "PSDC_PSD_STACK"
-PSD_IO = io.Custom("PSD")
 
 
 def tensor_to_uint8_array(tensor):
@@ -1321,7 +1328,8 @@ class PSDC_PSDLoad:
         path = folder_paths.get_annotated_filepath(psd_file)
         digest = hashlib.sha256()
         with open(path, "rb") as handle:
-            digest.update(handle.read())
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
         return digest.hexdigest()
 
     @classmethod
@@ -1357,45 +1365,76 @@ class PSDC_ImageToPSD:
         return PSDC_ImageCompositePSD().execute(0, 0, 0, 0, source=image, mask=mask, psd=psd)
 
 
-class PSDC_PSDLayerCombine(io.ComfyNode):
-    @classmethod
-    def define_schema(cls):
-        psd_template = io.Autogrow.TemplatePrefix(PSD_IO.Input("psd"), prefix="psd", min=2, max=50)
-        return io.Schema(
-            node_id="PSDC PSD Layer Combine",
-            display_name="PSDC PSD Layer Combine",
-            category="PSDC/Image",
-            inputs=[
-                io.Autogrow.Input(
-                    "psds",
-                    template=psd_template,
-                    tooltip="Connect two or more PSD stacks. A new PSD socket appears as the last one is used.",
-                )
-            ],
-            outputs=[
-                io.Image.Output(display_name="image"),
-                PSD_IO.Output(display_name="psd"),
-            ],
-        )
+def combine_psd_stacks(stacks):
+    if not stacks:
+        empty = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
+        return empty, create_empty_psd_stack(1, 1, 1)
 
-    @classmethod
-    def execute(cls, psds: io.Autogrow.Type) -> io.NodeOutput:
-        stacks = [psd for psd in psds.values() if is_psd_stack(psd)]
+    width = max(int(stack["width"]) for stack in stacks)
+    height = max(int(stack["height"]) for stack in stacks)
+    batch_size = max(int(stack.get("batch_size", 1)) for stack in stacks)
+    combined = create_empty_psd_stack(width, height, batch_size)
 
-        if not stacks:
-            empty = torch.zeros((1, 1, 1, 3), dtype=torch.float32)
-            return io.NodeOutput(empty, create_empty_psd_stack(1, 1, 1))
+    for stack in stacks:
+        resized_stack = resize_psd_stack_to_canvas(stack, width, height, batch_size)
+        combined["layers"].extend([dict(layer) for layer in resized_stack.get("layers", [])])
 
-        width = max(int(stack["width"]) for stack in stacks)
-        height = max(int(stack["height"]) for stack in stacks)
-        batch_size = max(int(stack.get("batch_size", 1)) for stack in stacks)
-        combined = create_empty_psd_stack(width, height, batch_size)
+    return flatten_psd_stack(combined), combined
 
-        for stack in stacks:
-            resized_stack = resize_psd_stack_to_canvas(stack, width, height, batch_size)
-            combined["layers"].extend([dict(layer) for layer in resized_stack.get("layers", [])])
 
-        return io.NodeOutput(flatten_psd_stack(combined), combined)
+if HAS_AUTOGROW:
+    PSD_IO = io.Custom("PSD")
+
+    class PSDC_PSDLayerCombine(io.ComfyNode):
+        @classmethod
+        def define_schema(cls):
+            psd_template = io.Autogrow.TemplatePrefix(PSD_IO.Input("psd"), prefix="psd", min=2, max=50)
+            return io.Schema(
+                node_id="PSDC PSD Layer Combine",
+                display_name="PSDC PSD Layer Combine",
+                category="PSDC/Image",
+                inputs=[
+                    io.Autogrow.Input(
+                        "psds",
+                        template=psd_template,
+                        tooltip="Connect two or more PSD stacks. A new PSD socket appears as the last one is used.",
+                    )
+                ],
+                outputs=[
+                    io.Image.Output(display_name="image"),
+                    PSD_IO.Output(display_name="psd"),
+                ],
+            )
+
+        @classmethod
+        def execute(cls, psds) -> "io.NodeOutput":
+            stacks = [psd for psd in psds.values() if is_psd_stack(psd)]
+            image, combined = combine_psd_stacks(stacks)
+            return io.NodeOutput(image, combined)
+else:
+
+    class PSDC_PSDLayerCombine:
+        """Fixed-socket combine for ComfyUI versions without the v3 Autogrow API."""
+
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "psd_1": ("PSD",),
+                    "psd_2": ("PSD",),
+                },
+                "optional": {f"psd_{index}": ("PSD",) for index in range(3, 9)},
+            }
+
+        RETURN_TYPES = ("IMAGE", "PSD")
+        RETURN_NAMES = ("image", "psd")
+        FUNCTION = "execute"
+        CATEGORY = "PSDC/Image"
+
+        def execute(self, **kwargs):
+            stacks = [kwargs[key] for key in sorted(kwargs) if is_psd_stack(kwargs.get(key))]
+            image, combined = combine_psd_stacks(stacks)
+            return (image, combined)
 
 
 class PSDC_PSDStructureJSON:
@@ -1432,7 +1471,7 @@ class PSDC_PreviewPSD:
     def __init__(self):
         self.output_dir = folder_paths.get_temp_directory()
         self.type = "temp"
-        self.prefix_append = "_temp_" + "".join(random.choice("abcdefghijklmnopqrstupvxyz") for _ in range(5))
+        self.prefix_append = "_temp_" + "".join(random.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(5))
         self.compress_level = 1
 
     @classmethod

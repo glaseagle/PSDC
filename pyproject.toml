@@ -2,7 +2,7 @@
 description = "PSDC saves ComfyUI image batches as PSDs with native Photoshop layer masks"
 license = {file = "LICENSE"}
 name = "PSDC"
-version = "0.12.0"
+version = "0.13.0"
 
 [project.urls]
 Repository = "https://github.com/glaseagle/PSDC"
