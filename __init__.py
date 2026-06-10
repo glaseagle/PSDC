@@ -11,8 +11,6 @@ from server import PromptServer
 
 from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS
 
-WEB_DIRECTORY = "./web"
-
 PSDC_MAX_UPLOAD_SIZE = 2 * 1024 * 1024 * 1024
 
 
@@ -71,4 +69,4 @@ async def upload_psd(request):
     return web.json_response(saved)
 
 
-__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

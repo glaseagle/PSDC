@@ -1,7 +1,20 @@
 import { app } from "../../scripts/app.js";
 
-const PSD_LOAD_NODE = "PSD Load";
+const PSD_LOAD_NODE = "PSDC Load PSD";
+const LEGACY_PSD_LOAD_NODE = "PSD Load";
 const PSD_WIDGET = "psd_file";
+const PSDC_NODE_TYPES = new Set([
+    "PSDC Apply Alpha Channel",
+    "PSDC Image Composite PSD",
+    "PSDC Load PSD",
+    "PSD Load",
+    "PSDC Image To PSD",
+    "PSDC PSD Layer Combine",
+    "PSDC PSD Structure JSON",
+    "PSDC Preview PSD",
+    "PSDC Save PSD",
+    "PSDC Extract Alpha",
+]);
 
 function isPsdFile(file) {
     return !!file?.name && file.name.toLowerCase().endsWith(".psd");
@@ -30,7 +43,7 @@ function setPsdWidgetValue(node, filename) {
 
 async function uploadPsd(file) {
     if (!isPsdFile(file)) {
-        throw new Error("Only .psd files can be uploaded into PSD Load.");
+        throw new Error("Only .psd files can be uploaded into PSDC Load PSD.");
     }
 
     const body = new FormData();
@@ -203,7 +216,13 @@ app.registerExtension({
         installWindowDropHandler();
     },
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        if (nodeData.name !== PSD_LOAD_NODE) return;
+        if (PSDC_NODE_TYPES.has(nodeData.name) || nodeData.python_module?.includes("D2-SavePSD-ComfyUI")) {
+            nodeData.python_module = "custom_nodes.PSDC";
+        }
+
+        if (nodeData.name !== PSD_LOAD_NODE && nodeData.name !== LEGACY_PSD_LOAD_NODE) return;
+        if (nodeType.prototype.__psdcUploadPatched) return;
+        nodeType.prototype.__psdcUploadPatched = true;
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {

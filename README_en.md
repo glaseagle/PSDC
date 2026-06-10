@@ -106,9 +106,11 @@ Outputs:
 - `image`: The flat composited image, for continuing the normal ComfyUI image path.
 - `psd`: The Photoshop layer stack with the same placement and mask behavior.
 
-### PSD Load
+### PSDC Load PSD
 
 Loads a Photoshop `.psd` file from the ComfyUI `input` directory and converts it into a `PSD` stack for the rest of the pipeline.
+
+Older workflows that contain `PSD Load` still load; the node now displays as `PSDC Load PSD`.
 
 Inputs:
 
@@ -118,8 +120,8 @@ Upload behavior:
 
 - The dropdown lists files that already exist in `ComfyUI/input`.
 - The node includes a `Choose PSD` button that uploads a local `.psd` into `ComfyUI/input` and selects it.
-- Dragging a `.psd` file onto a `PSD Load` node uploads it and selects it.
-- Dragging a `.psd` file onto the Comfy canvas uploads it and creates a populated `PSD Load` node.
+- Dragging a `.psd` file onto a `PSDC Load PSD` node uploads it and selects it.
+- Dragging a `.psd` file onto the Comfy canvas uploads it and creates a populated `PSDC Load PSD` node.
 - PSDC uses its own PSD upload endpoint so large layered PSD files do not hit ComfyUI's regular image upload size path.
 
 Outputs:
@@ -128,11 +130,11 @@ Outputs:
 
 ### PSDC PSD Structure JSON
 
-Extracts a JSON text description of a `PSD` stack. Use it directly after `PSD Load` when you want the original Photoshop layer tree, adjustment/fill descriptors, smart object metadata, and layer effects that `psd-tools` can read. Generated or edited PSDC stacks also work, but they contain the synthetic current layer layout because original Photoshop-only descriptors do not exist in that path.
+Extracts a JSON text description of a `PSD` stack. Use it directly after `PSDC Load PSD` when you want the original Photoshop layer tree, adjustment/fill descriptors, smart object metadata, and layer effects that `psd-tools` can read. Generated or edited PSDC stacks also work, but they contain the synthetic current layer layout because original Photoshop-only descriptors do not exist in that path.
 
 Inputs:
 
-- `psd`: A PSDC `PSD` stack, usually from `PSD Load`.
+- `psd`: A PSDC `PSD` stack, usually from `PSDC Load PSD`.
 - `pretty`: Pretty-print the JSON with indentation.
 
 Outputs:

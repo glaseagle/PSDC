@@ -515,7 +515,7 @@ def create_psd_image_from_stack(psd_stack, batch_index=0):
     height = int(psd_stack["height"])
     psd = PSDImage.new("RGB", (width, height))
 
-    # Stack convention (matches flatten_psd_stack and PSD Load): layers[0] is the
+    # Stack convention (matches flatten_psd_stack and PSDC Load PSD): layers[0] is the
     # bottom layer, layers[-1] is the top. create_pixel_layer appends each new layer
     # above the previous one, so iterate bottom-to-top to preserve z-order.
     for layer in psd_stack["layers"]:
@@ -1331,6 +1331,10 @@ class PSDC_PSDLoad:
         return True
 
 
+class PSDC_LegacyPSDLoad(PSDC_PSDLoad):
+    DEPRECATED = True
+
+
 class PSDC_ImageToPSD:
     @classmethod
     def INPUT_TYPES(cls):
@@ -1640,7 +1644,8 @@ class PSDC_ExtractAlpha:
 NODE_CLASS_MAPPINGS = {
     "PSDC Apply Alpha Channel": PSDC_ApplyAlphaChannel,
     "PSDC Image Composite PSD": PSDC_ImageCompositePSD,
-    "PSD Load": PSDC_PSDLoad,
+    "PSDC Load PSD": PSDC_PSDLoad,
+    "PSD Load": PSDC_LegacyPSDLoad,
     "PSDC Image To PSD": PSDC_ImageToPSD,
     "PSDC PSD Layer Combine": PSDC_PSDLayerCombine,
     "PSDC PSD Structure JSON": PSDC_PSDStructureJSON,
@@ -1652,7 +1657,8 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "PSDC Apply Alpha Channel": "PSDC Apply Alpha Channel",
     "PSDC Image Composite PSD": "PSDC Image Composite PSD",
-    "PSD Load": "PSD Load",
+    "PSDC Load PSD": "PSDC Load PSD",
+    "PSD Load": "PSDC Load PSD",
     "PSDC Image To PSD": "PSDC Image To PSD",
     "PSDC PSD Layer Combine": "PSDC PSD Layer Combine",
     "PSDC PSD Structure JSON": "PSDC PSD Structure JSON",
