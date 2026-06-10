@@ -118,6 +118,79 @@ Outputs:
 
 - `psd`: The loaded Photoshop layer stack.
 
+### PSDC PSD Structure JSON
+
+Extracts a JSON text description of a `PSD` stack. Use it directly after `PSD Load` when you want the original Photoshop layer tree, adjustment/fill descriptors, smart object metadata, and layer effects that `psd-tools` can read. Generated or edited PSDC stacks also work, but they contain the synthetic current layer layout because original Photoshop-only descriptors do not exist in that path.
+
+Inputs:
+
+- `psd`: A PSDC `PSD` stack, usually from `PSD Load`.
+- `pretty`: Pretty-print the JSON with indentation.
+
+Outputs:
+
+- `json`: A `STRING` containing the extracted structure.
+
+JSON object format:
+
+```json
+{
+  "schema": "psdc.psd_structure.v1",
+  "description": "Layer/effect/adjustment metadata extracted from a Photoshop PSD. Pixel tensors are not embedded.",
+  "source": {
+    "path": "C:/path/to/file.psd",
+    "filename": "file.psd"
+  },
+  "document": {
+    "width": 2160,
+    "height": 3840,
+    "layer_count_top_level": 6,
+    "layer_order": "array order follows psd-tools iteration order used by PSDC; children preserve their group nesting."
+  },
+  "layers": [
+    {
+      "index_path": [0],
+      "id": 123,
+      "name": "Curves 1",
+      "kind": "curves",
+      "class": "Curves",
+      "visible": true,
+      "opacity": 255,
+      "fill_opacity": 255,
+      "blend_mode": "norm",
+      "clipping": false,
+      "bbox": { "left": 0, "top": 0, "right": 2160, "bottom": 3840 },
+      "has_mask": false,
+      "has_vector_mask": false,
+      "has_effects": false,
+      "adjustments": {
+        "CURVES": {
+          "_type": "Curves",
+          "channels": [
+            {
+              "index": 0,
+              "channel": "composite",
+              "points": [
+                { "input": 54, "output": 0 },
+                { "input": 100, "output": 111 },
+                { "input": 200, "output": 255 }
+              ]
+            }
+          ]
+        }
+      },
+      "effects": [],
+      "effect_descriptors": {},
+      "descriptors": {},
+      "smart_object": null,
+      "children": []
+    }
+  ]
+}
+```
+
+For LLM edits, target layers by `index_path` or `id`, preserve the `schema`, and only change the relevant metadata fields. `adjustments` contains Photoshop adjustment/fill tagged blocks such as `CURVES` or `GRADIENT_FILL_SETTING`; `effects` contains parsed layer effects when available; `effect_descriptors` contains raw effect tagged blocks; `descriptors` contains non-adjustment Photoshop metadata such as smart object or placed layer descriptors; `children` preserves group nesting.
+
 ### PSDC Image To PSD
 
 Converts a loose `IMAGE` or `IMAGE` plus `MASK` into the PSD track without setting up a full composite node.

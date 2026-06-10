@@ -1,6 +1,8 @@
 import hashlib
+import json
 import logging
 import os
+from enum import Enum as PyEnum
 
 import folder_paths
 import numpy as np
@@ -875,6 +877,376 @@ def pil_rgba_to_tensors(pil_image):
     return rgb, alpha
 
 
+def psd_key_to_string(value):
+    if isinstance(value, bytes):
+        return value.decode("latin-1", errors="replace").replace("\x00", "").strip()
+    if isinstance(value, PyEnum):
+        return value.name
+    return str(value)
+
+
+def psd_value_to_json(value, depth=0):
+    if depth > 8:
+        return repr(value)
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    if isinstance(value, bytes):
+        if len(value) > 128:
+            return {"type": "bytes", "length": len(value)}
+        return psd_key_to_string(value)
+
+    if isinstance(value, PyEnum):
+        enum_value = value.value
+        return {"name": value.name, "value": psd_key_to_string(enum_value)}
+
+    if isinstance(value, np.generic):
+        return value.item()
+
+    if isinstance(value, torch.Tensor):
+        return {"type": "tensor", "shape": list(value.shape), "dtype": str(value.dtype)}
+
+    if type(value).__name__ == "Curves":
+        return serialize_curves(value)
+
+    if hasattr(value, "items") and callable(value.items):
+        result = {"_type": type(value).__name__}
+        for attr in ("name", "classID", "version", "data_version", "ostype"):
+            if hasattr(value, attr):
+                attr_value = getattr(value, attr)
+                if attr_value not in (None, "", b"\x00\x00\x00\x00"):
+                    result[f"_{attr}"] = psd_value_to_json(attr_value, depth + 1)
+        result.update({psd_key_to_string(key): psd_value_to_json(item, depth + 1) for key, item in value.items()})
+        return result
+
+    if isinstance(value, (list, tuple)):
+        return [psd_value_to_json(item, depth + 1) for item in value]
+
+    if hasattr(value, "typeID") and hasattr(value, "enum"):
+        result = {
+            "_type": type(value).__name__,
+            "typeID": psd_key_to_string(value.typeID),
+            "enum": psd_key_to_string(value.enum),
+        }
+        try:
+            result["name"] = value.get_name()
+        except Exception:
+            pass
+        return result
+
+    if hasattr(value, "unit") and hasattr(value, "value"):
+        return {
+            "_type": type(value).__name__,
+            "value": psd_value_to_json(value.value, depth + 1),
+            "unit": psd_value_to_json(value.unit, depth + 1),
+        }
+
+    if hasattr(value, "value"):
+        inner_value = getattr(value, "value")
+        if isinstance(inner_value, bytes) and len(inner_value) > 128:
+            return {"_type": type(value).__name__, "value": {"type": "bytes", "length": len(inner_value)}}
+        return psd_value_to_json(inner_value, depth + 1)
+
+    if hasattr(value, "__iter__") and not isinstance(value, (str, bytes)):
+        try:
+            return [psd_value_to_json(item, depth + 1) for item in value]
+        except Exception:
+            pass
+
+    attrs = {}
+    for attr in dir(value):
+        if attr.startswith("_") or attr in ("data", "parent", "context"):
+            continue
+        try:
+            attr_value = getattr(value, attr)
+        except Exception:
+            continue
+        if callable(attr_value):
+            continue
+        if isinstance(attr_value, bytes) and len(attr_value) > 128:
+            attrs[attr] = {"type": "bytes", "length": len(attr_value)}
+        elif isinstance(attr_value, (str, int, float, bool, type(None), bytes, list, tuple)) or hasattr(attr_value, "items"):
+            attrs[attr] = psd_value_to_json(attr_value, depth + 1)
+
+    if attrs:
+        return {"_type": type(value).__name__, **attrs}
+
+    return repr(value)
+
+
+def serialize_curves(curves):
+    channel_names = ["composite", "red", "green", "blue", "alpha"]
+    channels = []
+    for index, points in enumerate(getattr(curves, "data", []) or []):
+        if getattr(curves, "is_map", False):
+            channels.append(
+                {
+                    "index": index,
+                    "channel": channel_names[index] if index < len(channel_names) else f"channel_{index}",
+                    "lookup": list(points),
+                }
+            )
+        else:
+            channels.append(
+                {
+                    "index": index,
+                    "channel": channel_names[index] if index < len(channel_names) else f"channel_{index}",
+                    "points": [{"output": int(point[0]), "input": int(point[1])} for point in points],
+                }
+            )
+
+    return {
+        "_type": "Curves",
+        "version": getattr(curves, "version", None),
+        "is_map": bool(getattr(curves, "is_map", False)),
+        "count_map": getattr(curves, "count_map", None),
+        "channels": channels,
+        "extra": psd_value_to_json(getattr(curves, "extra", None)),
+    }
+
+
+def layer_tag_name(tag):
+    return tag.name if hasattr(tag, "name") else psd_key_to_string(tag)
+
+
+def layer_id_from_tags(layer):
+    tagged_blocks = getattr(layer, "tagged_blocks", None)
+    if not tagged_blocks:
+        return None
+
+    for tag in tagged_blocks.keys():
+        if layer_tag_name(tag) == "LAYER_ID":
+            try:
+                return psd_value_to_json(tagged_blocks.get(tag).data)
+            except Exception:
+                return None
+    return None
+
+
+ADJUSTMENT_TAG_TERMS = (
+    "CURVE",
+    "LEVEL",
+    "GRADIENT",
+    "SOLID_COLOR",
+    "PATTERN",
+    "HUE",
+    "SATURATION",
+    "BRIGHTNESS",
+    "CONTRAST",
+    "EXPOSURE",
+    "PHOTO_FILTER",
+    "BLACK_AND_WHITE",
+    "VIBRANCE",
+    "COLOR_BALANCE",
+    "SELECTIVE_COLOR",
+    "CHANNEL_MIXER",
+    "POSTERIZE",
+    "THRESHOLD",
+    "INVERT",
+)
+
+EFFECT_TAG_TERMS = (
+    "EFFECT",
+    "STROKE",
+    "SHADOW",
+    "GLOW",
+    "BEVEL",
+    "OVERLAY",
+)
+
+DESCRIPTOR_TAG_TERMS = (
+    "TYPE_TOOL",
+    "PLACED_LAYER",
+    "SMART_OBJECT",
+)
+
+
+def classify_layer_tag(tag_name):
+    if any(term in tag_name for term in ADJUSTMENT_TAG_TERMS):
+        return "adjustments"
+    if any(term in tag_name for term in EFFECT_TAG_TERMS):
+        return "effect_descriptors"
+    if any(term in tag_name for term in DESCRIPTOR_TAG_TERMS):
+        return "descriptors"
+    return None
+
+
+def serialize_layer_tags(layer):
+    tagged_blocks = getattr(layer, "tagged_blocks", None)
+    if not tagged_blocks:
+        return {"adjustments": {}, "effect_descriptors": {}, "descriptors": {}}
+
+    tags = {"adjustments": {}, "effect_descriptors": {}, "descriptors": {}}
+    for tag in tagged_blocks.keys():
+        tag_name = layer_tag_name(tag)
+        category = classify_layer_tag(tag_name)
+        if not category:
+            continue
+        try:
+            data = tagged_blocks.get(tag).data
+        except Exception as error:
+            tags[category][tag_name] = {"error": str(error)}
+            continue
+        tags[category][tag_name] = psd_value_to_json(data)
+    return tags
+
+
+def serialize_layer_effects(layer):
+    effects = []
+    try:
+        layer_effects = layer.effects
+    except Exception:
+        return effects
+
+    for effect in layer_effects:
+        effects.append(psd_value_to_json(effect))
+    return effects
+
+
+def serialize_smart_object(layer):
+    smart_object = getattr(layer, "smart_object", None)
+    if not smart_object:
+        return None
+
+    result = {}
+    for attr in ("filename", "kind", "filetype", "filesize", "resolution", "unique_id", "transform_box", "warp"):
+        try:
+            value = getattr(smart_object, attr)
+        except Exception:
+            continue
+        if attr == "data":
+            continue
+        result[attr] = psd_value_to_json(value)
+    return result
+
+
+def serialize_layer_structure(layer, index_path):
+    bbox = tuple(int(value) for value in getattr(layer, "bbox", (0, 0, 0, 0)))
+    layer_info = {
+        "index_path": list(index_path),
+        "id": layer_id_from_tags(layer),
+        "name": layer.name or "",
+        "kind": str(getattr(layer, "kind", "")),
+        "class": type(layer).__name__,
+        "visible": bool(getattr(layer, "visible", True)),
+        "opacity": int(getattr(layer, "opacity", 255)),
+        "fill_opacity": int(getattr(layer, "fill_opacity", 255)),
+        "blend_mode": psd_value_to_json(getattr(layer, "blend_mode", None)),
+        "clipping": bool(getattr(layer, "clipping", False)),
+        "bbox": {"left": bbox[0], "top": bbox[1], "right": bbox[2], "bottom": bbox[3]},
+        "has_mask": bool(layer.has_mask()) if hasattr(layer, "has_mask") else False,
+        "has_vector_mask": bool(layer.has_vector_mask()) if hasattr(layer, "has_vector_mask") else False,
+        "has_effects": bool(layer.has_effects()) if hasattr(layer, "has_effects") else False,
+        "adjustments": {},
+        "effects": [],
+        "effect_descriptors": {},
+        "descriptors": {},
+        "smart_object": None,
+        "children": [],
+    }
+
+    smart_object = serialize_smart_object(layer)
+    if smart_object:
+        layer_info["smart_object"] = smart_object
+
+    effects = serialize_layer_effects(layer)
+    if effects:
+        layer_info["effects"] = effects
+
+    tags = serialize_layer_tags(layer)
+    if tags["adjustments"]:
+        layer_info["adjustments"] = tags["adjustments"]
+    if tags["effect_descriptors"]:
+        layer_info["effect_descriptors"] = tags["effect_descriptors"]
+    if tags["descriptors"]:
+        layer_info["descriptors"] = tags["descriptors"]
+
+    if layer.is_group():
+        layer_info["children"] = [
+            serialize_layer_structure(child, index_path + (index,)) for index, child in enumerate(layer)
+        ]
+
+    return layer_info
+
+
+def serialize_psd_document(psd, source_path=None):
+    return {
+        "schema": "psdc.psd_structure.v1",
+        "description": "Layer/effect/adjustment metadata extracted from a Photoshop PSD. Pixel tensors are not embedded.",
+        "source": {"path": str(source_path) if source_path else None, "filename": os.path.basename(str(source_path)) if source_path else None},
+        "document": {
+            "width": int(psd.width),
+            "height": int(psd.height),
+            "layer_count_top_level": len(psd),
+            "layer_order": "array order follows psd-tools iteration order used by PSDC; children preserve their group nesting.",
+        },
+        "layers": [serialize_layer_structure(layer, (index,)) for index, layer in enumerate(psd)],
+    }
+
+
+def synthesize_stack_structure(psd_stack):
+    return {
+        "schema": "psdc.psd_structure.v1",
+        "description": "Synthetic structure generated from a PSDC PSD stack. Original Photoshop-only adjustment/effect descriptors are unavailable.",
+        "source": {"path": None, "filename": None},
+        "document": {
+            "width": int(psd_stack.get("width", 1)),
+            "height": int(psd_stack.get("height", 1)),
+            "batch_size": int(psd_stack.get("batch_size", 1)),
+            "layer_count": len(psd_stack.get("layers", [])),
+            "layer_order": "bottom_to_top",
+        },
+        "layers": [
+            {
+                "index_path": [index],
+                "id": None,
+                "name": layer.get("name", f"Layer {index + 1}"),
+                "kind": "pixel",
+                "class": "PSDCStackLayer",
+                "visible": int(layer.get("opacity", 255)) > 0,
+                "opacity": int(layer.get("opacity", 255)),
+                "fill_opacity": int(layer.get("opacity", 255)),
+                "blend_mode": "normal",
+                "clipping": False,
+                "bbox": {
+                    "left": int(match_position_list(list(layer.get("x", [0])), 1)[0]),
+                    "top": int(match_position_list(list(layer.get("y", [0])), 1)[0]),
+                    "right": int(match_position_list(list(layer.get("x", [0])), 1)[0]) + int(layer["image"].shape[2]),
+                    "bottom": int(match_position_list(list(layer.get("y", [0])), 1)[0]) + int(layer["image"].shape[1]),
+                },
+                "has_mask": layer.get("mask") is not None,
+                "has_vector_mask": False,
+                "has_effects": False,
+                "adjustments": {},
+                "effect_descriptors": {},
+                "descriptors": {},
+                "effects": [],
+                "smart_object": None,
+                "children": [],
+            }
+            for index, layer in enumerate(psd_stack.get("layers", []))
+        ],
+    }
+
+
+def psd_stack_structure_matches_current_layers(psd_stack):
+    structure = psd_stack.get("structure")
+    if not isinstance(structure, dict):
+        return False
+
+    document = structure.get("document", {})
+    try:
+        width_matches = int(document.get("width")) == int(psd_stack.get("width"))
+        height_matches = int(document.get("height")) == int(psd_stack.get("height"))
+        layer_count = document.get("layer_count_top_level", document.get("layer_count"))
+        layer_count_matches = int(layer_count) == len(psd_stack.get("layers", []))
+    except (TypeError, ValueError):
+        return False
+
+    return width_matches and height_matches and layer_count_matches
+
+
 def load_psd_file_to_stack(path):
     psd = PSDImage.open(path)
     width = int(psd.width)
@@ -914,6 +1286,7 @@ def load_psd_file_to_stack(path):
         "height": height,
         "batch_size": 1,
         "layers": layers,
+        "structure": serialize_psd_document(psd, path),
     }
 
 
@@ -1015,6 +1388,36 @@ class PSDC_PSDLayerCombine(io.ComfyNode):
             combined["layers"].extend([dict(layer) for layer in resized_stack.get("layers", [])])
 
         return io.NodeOutput(flatten_psd_stack(combined), combined)
+
+
+class PSDC_PSDStructureJSON:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "psd": ("PSD",),
+                "pretty": ("BOOLEAN", {"default": True}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("json",)
+    FUNCTION = "execute"
+    CATEGORY = "PSDC/Image"
+
+    def execute(self, psd, pretty=True):
+        if is_psd_stack(psd) and psd_stack_structure_matches_current_layers(psd):
+            structure = psd["structure"]
+        elif is_psd_stack(psd):
+            structure = synthesize_stack_structure(psd)
+        else:
+            structure = {
+                "schema": "psdc.psd_structure.v1",
+                "error": "Input was not a PSDC PSD stack.",
+            }
+
+        indent = 2 if pretty else None
+        return (json.dumps(structure, indent=indent, ensure_ascii=False),)
 
 
 class PSDC_SavePSD:
@@ -1183,6 +1586,7 @@ NODE_CLASS_MAPPINGS = {
     "PSD Load": PSDC_PSDLoad,
     "PSDC Image To PSD": PSDC_ImageToPSD,
     "PSDC PSD Layer Combine": PSDC_PSDLayerCombine,
+    "PSDC PSD Structure JSON": PSDC_PSDStructureJSON,
     "PSDC Save PSD": PSDC_SavePSD,
     "PSDC Extract Alpha": PSDC_ExtractAlpha,
 }
@@ -1193,6 +1597,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PSD Load": "PSD Load",
     "PSDC Image To PSD": "PSDC Image To PSD",
     "PSDC PSD Layer Combine": "PSDC PSD Layer Combine",
+    "PSDC PSD Structure JSON": "PSDC PSD Structure JSON",
     "PSDC Save PSD": "PSDC Save PSD",
     "PSDC Extract Alpha": "PSDC Extract Alpha",
 }
