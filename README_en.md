@@ -139,15 +139,14 @@ Combines layers from two or more `PSD` inputs into one stack.
 
 Inputs:
 
-- `psd_1`, `psd_2`: Required PSD stacks. Layers from `psd_1` are kept below layers from `psd_2`.
-- `psd_3` through `psd_8`: Optional extra PSD stacks, added in input order above the previous stack.
+- `psds`: Dynamic PSD inputs. The node starts with two PSD sockets, then reveals the next socket as the last visible one is connected.
 
 Outputs:
 
 - `image`: The flattened combined PSD.
 - `psd`: A combined non-destructive PSD stack.
 
-If the input PSDs have different canvas sizes, the output uses the largest needed canvas. Smaller PSD stacks are scaled proportionally into that canvas before their layers are added.
+Layers are added in socket order from bottom to top. If the input PSDs have different canvas sizes, the output uses the largest needed canvas. Smaller PSD stacks are scaled proportionally into that canvas before their layers are added.
 
 ### PSDC Apply Alpha Channel
 
