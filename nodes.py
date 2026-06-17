@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import random
+import shutil
 from enum import Enum as PyEnum
 
 import folder_paths
@@ -25,6 +26,14 @@ HAS_AUTOGROW = io is not None and hasattr(io, "Autogrow")
 
 MAX_RESOLUTION = 16384
 PSD_STACK_TYPE = "PSDC_PSD_STACK"
+
+
+def file_sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def tensor_to_uint8_array(tensor):
@@ -254,6 +263,40 @@ def copy_psd_stack(psd):
     }
 
 
+def clear_native_passthrough(psd):
+    psd.pop("native_passthrough", None)
+    for layer in psd.get("layers", []):
+        layer.pop("native_source_layer", None)
+        layer.pop("source_index_path", None)
+    return psd
+
+
+def native_passthrough_source_path(psd_stack):
+    if not is_psd_stack(psd_stack):
+        return None
+
+    passthrough = psd_stack.get("native_passthrough")
+    if not isinstance(passthrough, dict) or not passthrough.get("enabled"):
+        return None
+
+    source_path = passthrough.get("source_path")
+    if source_path and os.path.isfile(source_path):
+        return source_path
+
+    try:
+        source_path = psd_stack_source_path(psd_stack)
+    except Exception:
+        return None
+
+    return source_path if os.path.isfile(source_path) else None
+
+
+def psd_overlay_layers(psd_stack):
+    if not is_psd_stack(psd_stack):
+        return []
+    return [layer for layer in psd_stack.get("layers", []) if not layer.get("native_source_layer")]
+
+
 def match_position_list(positions, batch_size):
     if len(positions) >= batch_size:
         return positions[:batch_size]
@@ -351,6 +394,7 @@ def resize_psd_stack_to_canvas(psd, width, height, batch_size=None):
     scale = min(width / old_width, height / old_height)
     scale = max(scale, 1.0)
     resized = copy_psd_stack(psd)
+    clear_native_passthrough(resized)
     resized["width"] = int(width)
     resized["height"] = int(height)
     resized["batch_size"] = int(batch_size)
@@ -2184,6 +2228,8 @@ def load_psd_file_to_stack(path):
                 "x": [0],
                 "y": [0],
                 "opacity": 255,
+                "native_source_layer": True,
+                "source_index_path": [len(layers)],
             }
         )
 
@@ -2191,7 +2237,16 @@ def load_psd_file_to_stack(path):
         # Flattened PSD with no addressable layers: keep the whole image as one layer.
         rgb, alpha = pil_rgba_to_tensors(psd.composite(viewport=viewport))
         layers.append(
-            {"name": "Background", "image": rgb, "mask": alpha, "x": [0], "y": [0], "opacity": 255}
+            {
+                "name": "Background",
+                "image": rgb,
+                "mask": alpha,
+                "x": [0],
+                "y": [0],
+                "opacity": 255,
+                "native_source_layer": True,
+                "source_index_path": [0],
+            }
         )
 
     return {
@@ -2202,6 +2257,11 @@ def load_psd_file_to_stack(path):
         "batch_size": 1,
         "layers": layers,
         "structure": serialize_psd_document(psd, path),
+        "native_passthrough": {
+            "enabled": True,
+            "source_path": str(path),
+            "sha256": file_sha256(path),
+        },
     }
 
 
@@ -2233,11 +2293,7 @@ class PSDC_PSDLoad:
     @classmethod
     def IS_CHANGED(cls, psd_file):
         path = folder_paths.get_annotated_filepath(psd_file)
-        digest = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
-        return digest.hexdigest()
+        return file_sha256(path)
 
     @classmethod
     def VALIDATE_INPUTS(cls, psd_file):
@@ -2594,6 +2650,17 @@ class PSDC_SavePSD:
         )
 
         batch_size = int(psd_stack.get("batch_size", 1))
+        native_source_path = native_passthrough_source_path(psd_stack)
+        if native_source_path is not None:
+            return self.save_native_source_psd(
+                psd_stack,
+                native_source_path,
+                filename,
+                counter,
+                full_output_folder,
+                file_mode,
+                batch_size,
+            )
 
         try:
             if file_mode == "single_file":
@@ -2619,6 +2686,91 @@ class PSDC_SavePSD:
             logging.warning("Error occurred while saving PSD stack: %s", str(error))
             raise
 
+        return {}
+
+    def create_native_psd_from_source_stack(self, psd_stack, source_path, batch_index):
+        psd_image = PSDImage.open(source_path)
+        source_width = int(psd_image.width)
+        source_height = int(psd_image.height)
+        target_width = int(psd_stack.get("width", source_width))
+        target_height = int(psd_stack.get("height", source_height))
+
+        if target_width != source_width or target_height != source_height:
+            logging.warning(
+                "Native PSD source size %sx%s differs from PSDC stack size %sx%s. "
+                "Keeping native layers unscaled and expanding the canvas only.",
+                source_width,
+                source_height,
+                target_width,
+                target_height,
+            )
+            psd_image._record.header.width = max(source_width, target_width)
+            psd_image._record.header.height = max(source_height, target_height)
+            psd_image._mark_updated()
+
+        width = int(psd_image.width)
+        height = int(psd_image.height)
+        for layer in psd_overlay_layers(psd_stack):
+            rgb_image, alpha_mask, has_alpha, opacity = layer_to_pil(layer, batch_index, width, height)
+            append_pixel_layer_with_mask(psd_image, rgb_image, alpha_mask, layer["name"], has_alpha, opacity)
+
+        return psd_image
+
+    def save_native_source_psd(self, psd_stack, source_path, filename, counter, full_output_folder, file_mode, batch_size):
+        overlay_layers = psd_overlay_layers(psd_stack)
+        if not overlay_layers:
+            return self.save_native_passthrough_psd(source_path, filename, counter, full_output_folder, file_mode, batch_size)
+
+        try:
+            if file_mode == "single_file":
+                file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
+                psd_image = self.create_native_psd_from_source_stack(psd_stack, source_path, 0)
+                psd_image.save(os.path.join(full_output_folder, file))
+                logging.info(
+                    "Native PSD source file was saved with %s PSDC overlay layer(s): %s",
+                    len(overlay_layers),
+                    file,
+                )
+
+                if batch_size > 1:
+                    logging.info(
+                        "Native PSD source stack had %s batch entries; single_file mode saved batch 0 only. "
+                        "Use multi_file to save every overlay batch on top of the native PSD source.",
+                        batch_size,
+                    )
+            else:
+                for batch_number in range(batch_size):
+                    file = f"{filename.replace('%batch_num%', str(batch_number))}_{counter:05}_{batch_number}.psd"
+                    psd_image = self.create_native_psd_from_source_stack(psd_stack, source_path, batch_number)
+                    psd_image.save(os.path.join(full_output_folder, file))
+                    logging.info(
+                        "Native PSD source file %s/%s was saved with %s PSDC overlay layer(s): %s",
+                        batch_number + 1,
+                        batch_size,
+                        len(overlay_layers),
+                        file,
+                    )
+        except Exception as error:
+            logging.warning("Error occurred while saving native PSD source stack: %s", str(error))
+            raise
+
+        return {}
+
+    def save_native_passthrough_psd(self, source_path, filename, counter, full_output_folder, file_mode, batch_size):
+        if file_mode == "single_file":
+            file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
+        else:
+            file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_0.psd"
+            if batch_size > 1:
+                logging.info(
+                    "Native PSD passthrough saved the original source once; "
+                    "batch size %s is ignored because the native PSD source is a single document.",
+                    batch_size,
+                )
+
+        output_path = os.path.join(full_output_folder, file)
+        shutil.copyfile(source_path, output_path)
+        logging.info("Native PSD passthrough copied source PSD to: %s", output_path)
         return {}
 
 

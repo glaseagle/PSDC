@@ -84,6 +84,10 @@ Inputs:
 
 Native masks are created when the incoming image has an alpha channel. The easiest way to produce that is with `PSDC Apply Alpha Channel`.
 
+When the `psd` input comes from `PSDC Load PSD`, `PSDC Save PSD` preserves that original PSD as the native base document. If no PSDC layers have been added, the source PSD is copied byte-for-byte. If PSDC image/mask/composite layers have been added above it, the save node reopens the source PSD and appends only those new PSDC layers, keeping the original Photoshop groups, effects, masks, smart objects, fill layers, and adjustment layers intact.
+
+Operations that must rasterize or scale the loaded PSD base itself still fall back to the PSDC pixel-stack save path, because `psd-tools` does not expose a safe public API for transforming every native Photoshop layer/effect/adjustment in place.
+
 ### PSDC Image Composite PSD
 
 Composites like the Essentials `ImageComposite+` node while also building a parallel non-destructive `PSD` stack. The image inputs are intentionally optional so the node can also convert loose images and masks into the PSD track.
@@ -126,7 +130,7 @@ Upload behavior:
 
 Outputs:
 
-- `psd`: The loaded Photoshop layer stack.
+- `psd`: The loaded Photoshop layer stack. The stack also keeps the original file path so `PSDC Save PSD` can preserve the native source while adding new PSDC layers above it, and so native JSON apply can reopen the source PSD.
 
 ### PSDC PSD Structure JSON
 
