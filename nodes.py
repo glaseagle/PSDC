@@ -9,7 +9,7 @@ from enum import Enum as PyEnum
 import folder_paths
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from psd_tools import PSDImage
 
 try:
@@ -1359,6 +1359,9 @@ def source_layer_lookup(source_psd, mode):
 
     source_structure = source_psd.get("structure", {})
     source_selected = collect_structure_layers(source_structure.get("layers", []), mode)
+    if len(source_selected) != len(source_layers):
+        source_selected = collect_structure_layers(source_structure.get("layers", []), "top_level")
+
     for index, (layer_info, _group_path) in enumerate(source_selected):
         if index >= len(source_layers):
             break
@@ -1412,6 +1415,181 @@ def create_placeholder_layer_for_structure(layer_info, layer_name, document_widt
     }
 
 
+def layer_type_tool_object(layer_info):
+    adjustments = layer_info.get("adjustments") if isinstance(layer_info, dict) else None
+    if isinstance(adjustments, dict):
+        for key, value in adjustments.items():
+            if str(key).lower() in ("type_tool_object", "type_tool"):
+                if isinstance(value, dict):
+                    return value
+
+    descriptors = layer_info.get("descriptors") if isinstance(layer_info, dict) else None
+    if isinstance(descriptors, dict):
+        for key, value in descriptors.items():
+            if "type" in str(key).lower() and isinstance(value, dict):
+                return value
+
+    return None
+
+
+def parse_text_color(value, default=(255, 255, 255)):
+    if isinstance(value, str):
+        text = value.strip().lstrip("#")
+        if len(text) == 6:
+            try:
+                return tuple(int(text[index : index + 2], 16) for index in (0, 2, 4))
+            except ValueError:
+                return default
+
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        channels = []
+        for channel in value[:3]:
+            try:
+                number = float(channel)
+            except (TypeError, ValueError):
+                return default
+            if 0.0 <= number <= 1.0:
+                number *= 255.0
+            channels.append(int(np.clip(round(number), 0, 255)))
+        return tuple(channels)
+
+    return default
+
+
+def load_text_font(size, bold=True):
+    fonts = [
+        "arialbd.ttf" if bold else "arial.ttf",
+        "Arial Bold.ttf" if bold else "Arial.ttf",
+        "segoeuib.ttf" if bold else "segoeui.ttf",
+        "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
+    ]
+    windows_font_dir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    candidates = []
+    for font in fonts:
+        candidates.append(os.path.join(windows_font_dir, font))
+        candidates.append(font)
+
+    for candidate in candidates:
+        try:
+            return ImageFont.truetype(candidate, int(size))
+        except OSError:
+            continue
+
+    return ImageFont.load_default()
+
+
+def text_bbox_size(draw, text, font):
+    bbox = draw.textbbox((0, 0), text, font=font)
+    return bbox, max(1, bbox[2] - bbox[0]), max(1, bbox[3] - bbox[1])
+
+
+def fit_text_font(draw, text, width, height, requested_size=None, bold=True):
+    if requested_size is not None:
+        size = clamp_int(requested_size, height, 1, MAX_RESOLUTION)
+        font = load_text_font(size, bold=bold)
+        bbox, text_width, text_height = text_bbox_size(draw, text, font)
+        return font, bbox, text_width, text_height
+
+    max_size = max(1, int(height * 0.9))
+    min_size = 1
+    best = None
+    while min_size <= max_size:
+        size = (min_size + max_size) // 2
+        font = load_text_font(size, bold=bold)
+        bbox, text_width, text_height = text_bbox_size(draw, text, font)
+        if text_width <= max(1, width * 0.96) and text_height <= max(1, height * 0.9):
+            best = (font, bbox, text_width, text_height)
+            min_size = size + 1
+        else:
+            max_size = size - 1
+
+    if best is not None:
+        return best
+
+    font = load_text_font(1, bold=bold)
+    bbox, text_width, text_height = text_bbox_size(draw, text, font)
+    return font, bbox, text_width, text_height
+
+
+def render_type_tool_layer_pil(layer_info, document_width, document_height):
+    type_tool = layer_type_tool_object(layer_info)
+    if not type_tool:
+        return None
+
+    text = type_tool.get("text", structure_layer_name(layer_info, "Text"))
+    text = str(text)
+    if not text:
+        return None
+
+    left, top, right, bottom = structure_layer_bbox(layer_info, document_width, document_height)
+    width = max(1, min(MAX_RESOLUTION, right - left))
+    height = max(1, min(MAX_RESOLUTION, bottom - top))
+    rgba = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(rgba)
+
+    color = parse_text_color(type_tool.get("color"), default=(255, 255, 255))
+    alignment = str(type_tool.get("alignment", "center")).lower()
+    bold = bool_from_json(type_tool.get("bold"), True)
+    requested_size = type_tool.get("font_size", type_tool.get("size"))
+    font, bbox, text_width, text_height = fit_text_font(draw, text, width, height, requested_size, bold=bold)
+
+    if alignment in ("left", "start"):
+        x = max(0, int(width * 0.02) - bbox[0])
+    elif alignment in ("right", "end"):
+        x = width - text_width - max(0, int(width * 0.02)) - bbox[0]
+    else:
+        x = (width - text_width) // 2 - bbox[0]
+
+    y = (height - text_height) // 2 - bbox[1]
+    draw.text((x, y), text, font=font, fill=(*color, 255))
+    return rgba, int(left), int(top)
+
+
+def render_structure_layer_pil(layer_info, document_width, document_height):
+    rendered = render_type_tool_layer_pil(layer_info, document_width, document_height)
+    if rendered is not None:
+        return rendered
+
+    children = layer_info.get("children") if isinstance(layer_info, dict) else None
+    if not isinstance(children, list) or not children:
+        return None
+
+    left, top, right, bottom = structure_layer_bbox(layer_info, document_width, document_height)
+    width = max(1, min(MAX_RESOLUTION, right - left))
+    height = max(1, min(MAX_RESOLUTION, bottom - top))
+    rgba = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    rendered_any = False
+
+    for child in children:
+        child_rendered = render_structure_layer_pil(child, document_width, document_height)
+        if child_rendered is None:
+            continue
+        child_rgba, child_left, child_top = child_rendered
+        rgba.alpha_composite(child_rgba, (int(child_left - left), int(child_top - top)))
+        rendered_any = True
+
+    if not rendered_any:
+        return None
+
+    return rgba, int(left), int(top)
+
+
+def create_rendered_layer_for_structure(layer_info, layer_name, document_width, document_height, batch_size):
+    rendered = render_structure_layer_pil(layer_info, document_width, document_height)
+    if rendered is None:
+        return None
+
+    rgba, left, top = rendered
+    rgb, alpha = pil_rgba_to_tensors(rgba)
+    return {
+        "name": layer_name,
+        "image": match_batch_size(rgb, batch_size),
+        "mask": match_batch_size(alpha, batch_size),
+        "x": [int(left)] * batch_size,
+        "y": [int(top)] * batch_size,
+    }
+
+
 def decode_psd_structure_json(json_text, source_psd=None, layer_mode="top_level", batch_size=1):
     try:
         structure = json.loads(json_text)
@@ -1447,7 +1625,10 @@ def decode_psd_structure_json(json_text, source_psd=None, layer_mode="top_level"
         if source_layer is None:
             source_layer = by_name.get(layer_info.get("name"))
 
-        if source_layer is not None:
+        rendered_layer = create_rendered_layer_for_structure(layer_info, name, document_width, document_height, batch_size)
+        if rendered_layer is not None:
+            layer = rendered_layer
+        elif source_layer is not None:
             layer = clone_source_layer_for_structure(source_layer, layer_info, document_width, document_height, batch_size)
         else:
             layer = create_placeholder_layer_for_structure(layer_info, name, document_width, document_height, batch_size)

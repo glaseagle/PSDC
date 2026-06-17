@@ -157,7 +157,7 @@ Outputs:
 - `image`: The flattened preview of the decoded PSD stack.
 - `psd`: The decoded PSDC layer stack.
 
-JSON does not embed pixel tensors. Without `source_psd`, the decoder creates transparent placeholder layers that preserve the editable structure. `PSDC Save PSD` writes those placeholders as normal Photoshop pixel layers; Photoshop adjustment/effect descriptors remain metadata in the stack JSON because PSDC's saver only writes pixel layers and native pixel masks.
+JSON does not embed pixel tensors. Without `source_psd`, the decoder creates transparent placeholder layers that preserve the editable structure. The decoder does rasterize simple JSON-authored text layers that provide `adjustments.type_tool_object` with `text`, `color`, and `alignment`, so LLM-edited title treatments can become visible PSDC pixel layers. `PSDC Save PSD` writes decoded layers as normal Photoshop pixel layers; Photoshop-native adjustment/effect descriptors remain metadata in the stack JSON because PSDC's saver only writes pixel layers and native pixel masks.
 
 JSON object format:
 
