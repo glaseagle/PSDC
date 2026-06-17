@@ -12,6 +12,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 from psd_tools import PSDImage
+from psd_tools.api import layers as psd_layers
 from psd_tools.constants import BlendMode, Tag
 
 try:
@@ -2401,6 +2402,25 @@ def assign_native_layer_id(layer, layer_id):
         pass
 
 
+def json_layer_identity(layer_info):
+    layer_id = layer_info.get("id")
+    if layer_id is not None:
+        return ("id", str(layer_id))
+
+    index_path = layer_info.get("index_path")
+    if isinstance(index_path, list):
+        try:
+            return ("index_path", tuple(int(value) for value in index_path))
+        except (TypeError, ValueError):
+            pass
+
+    name = layer_info.get("name")
+    if name:
+        return ("name", str(name))
+
+    return ("object", id(layer_info))
+
+
 def clone_native_prototype_layer(layer_info, prototype_lookup, layer_id):
     prototype_key = prototype_key_for_layer_info(layer_info)
     if not prototype_key:
@@ -2419,6 +2439,101 @@ def clone_native_prototype_layer(layer_info, prototype_lookup, layer_id):
     return layer
 
 
+def is_group_layer_info(layer_info):
+    if not isinstance(layer_info, dict):
+        return False
+    kind = str(layer_info.get("kind", "")).lower()
+    class_name = str(layer_info.get("class", "")).lower()
+    return kind in ("group", "artboard") or "group" in class_name or "artboard" in class_name
+
+
+def layer_info_has_existing_identity(layer_info, existing_identities):
+    return json_layer_identity(layer_info) in existing_identities
+
+
+def create_group_from_layer_info(parent, layer_info):
+    group = psd_layers.Group.new(parent=parent, name=structure_layer_name(layer_info, "Group"), open_folder=True)
+    patch_native_layer_metadata(group, layer_info)
+    return group
+
+
+def create_native_layers_from_structure_items(
+    parent,
+    layers,
+    prototype_lookup,
+    next_layer_id,
+    existing_identities,
+    layer_mode,
+    native_lookup,
+):
+    created_layers = 0
+    created_groups = 0
+    skipped_layers = 0
+
+    if not isinstance(layers, list):
+        return created_layers, created_groups, skipped_layers, next_layer_id
+
+    for layer_info in layers:
+        if not isinstance(layer_info, dict):
+            continue
+
+        exists = layer_info_has_existing_identity(layer_info, existing_identities)
+        children = layer_info.get("children")
+        if exists:
+            if is_group_layer_info(layer_info) and isinstance(children, list):
+                existing_group = find_native_layer_for_json(layer_info, *native_lookup)
+                if existing_group is not None and existing_group.is_group():
+                    child_created, child_groups, child_skipped, next_layer_id = create_native_layers_from_structure_items(
+                        existing_group,
+                        children,
+                        prototype_lookup,
+                        next_layer_id,
+                        existing_identities,
+                        "all_layers",
+                        native_lookup,
+                    )
+                    created_layers += child_created
+                    created_groups += child_groups
+                    skipped_layers += child_skipped
+            continue
+
+        if is_group_layer_info(layer_info):
+            if layer_mode == "top_level" and parent is not parent._psd:
+                continue
+            group = create_group_from_layer_info(parent, layer_info)
+            assign_native_layer_id(group, next_layer_id)
+            next_layer_id += 1
+            created_groups += 1
+
+            child_created, child_groups, child_skipped, next_layer_id = create_native_layers_from_structure_items(
+                group,
+                children,
+                prototype_lookup,
+                next_layer_id,
+                existing_identities,
+                "all_layers",
+                native_lookup,
+            )
+            created_layers += child_created
+            created_groups += child_groups
+            skipped_layers += child_skipped
+            continue
+
+        if not layer_info_has_native_prototype_payload(layer_info):
+            continue
+
+        layer = clone_native_prototype_layer(layer_info, prototype_lookup, next_layer_id)
+        if layer is None:
+            skipped_layers += 1
+            continue
+
+        next_layer_id += 1
+        parent.append(layer)
+        created_layers += 1
+
+    return created_layers, created_groups, skipped_layers, next_layer_id
+
+
 def document_size_from_json_structure(structure):
     selected = collect_structure_layers(structure.get("layers"), "all_layers")
     return document_size_from_structure(structure, selected)
@@ -2430,7 +2545,6 @@ def create_native_psd_from_structure_json(json_text, output_path, source_psd=Non
     if source_path:
         psd = PSDImage.open(source_path)
         patch_result = apply_structure_to_native_psd_object(psd, structure)
-        candidate_layers = patch_result["unmatched_layers"]
     else:
         width, height = document_size_from_json_structure(structure)
         psd = PSDImage.new("RGB", (int(width), int(height)))
@@ -2440,31 +2554,25 @@ def create_native_psd_from_structure_json(json_text, output_path, source_psd=Non
             "native_tag_updates": 0,
             "unmatched_layers": list(iter_json_structure_layers(structure.get("layers"))),
         }
-        candidate_layers = patch_result["unmatched_layers"]
-
-    if layer_mode == "top_level":
-        candidate_layers = [
-            layer_info for layer_info, _group_path in collect_structure_layers(structure.get("layers"), "top_level")
-            if layer_info in candidate_layers
-        ]
 
     prototype_lookup = load_native_prototype_lookup()
     next_layer_id = max_native_layer_id(psd) + 1
-    created_layers = 0
-    skipped_layers = 0
+    existing_identities = {json_layer_identity(layer_info) for layer_info in iter_json_structure_layers(structure.get("layers"))}
+    unmatched_identities = {json_layer_identity(layer_info) for layer_info in patch_result["unmatched_layers"]}
+    existing_identities -= unmatched_identities
+    native_lookup = native_psd_layer_lookup(psd)
 
-    for layer_info in candidate_layers:
-        if not layer_info_has_native_prototype_payload(layer_info):
-            continue
-        layer = clone_native_prototype_layer(layer_info, prototype_lookup, next_layer_id)
-        if layer is None:
-            skipped_layers += 1
-            continue
-        next_layer_id += 1
-        psd.append(layer)
-        created_layers += 1
+    created_layers, created_groups, skipped_layers, _next_layer_id = create_native_layers_from_structure_items(
+        psd,
+        structure.get("layers"),
+        prototype_lookup,
+        next_layer_id,
+        existing_identities,
+        layer_mode,
+        native_lookup,
+    )
 
-    if created_layers:
+    if created_layers or created_groups:
         psd._mark_updated()
 
     psd.save(output_path)
@@ -2473,6 +2581,7 @@ def create_native_psd_from_structure_json(json_text, output_path, source_psd=Non
         "metadata_updates": patch_result["metadata_updates"],
         "native_tag_updates": patch_result["native_tag_updates"],
         "created_layers": created_layers,
+        "created_groups": created_groups,
         "skipped_layers": skipped_layers,
         "source_path": source_path,
         "output_path": output_path,
@@ -2829,6 +2938,7 @@ class PSDC_NativePSDStructureJSONDecode:
             f"metadata_updates={result['metadata_updates']}, "
             f"native_tag_updates={result['native_tag_updates']}, "
             f"created_layers={result['created_layers']}, "
+            f"created_groups={result['created_groups']}, "
             f"skipped_layers={result['skipped_layers']})"
         )
         logging.info("PSDC native JSON decode %s", message)

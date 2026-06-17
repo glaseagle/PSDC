@@ -194,7 +194,7 @@ Inputs:
 - `json_text`: PSD structure JSON.
 - `filename_prefix`: Output filename prefix.
 - `layer_mode`: `all_layers` creates native prototype layers from nested children as well as top-level layers. `top_level` only uses top-level JSON layers.
-- `source_psd`: Optional PSDC stack from `PSDC Load PSD`. When connected, the source PSD is preserved as the native base, matching layers are patched, and unmatched JSON adjustment layers are cloned from the prototype library and appended above it.
+- `source_psd`: Optional PSDC stack from `PSDC Load PSD`. When connected, the source PSD is preserved as the native base, matching layers are patched, and unmatched JSON adjustment/effect/fill layers are cloned from the prototype library. If those unmatched layers are inside an existing JSON group, they are inserted into the matching native source group.
 
 Outputs:
 
@@ -227,6 +227,14 @@ Bundled native prototypes:
 - Bevel/Emboss
 
 Effect layers are cloned from editable Photoshop layer-effect prototypes. To edit effect values today, change the matching `effect_descriptors` entry in JSON; the `effects` array is useful for inspection and prototype selection, but the descriptor block is the native source of truth.
+
+Group behavior:
+
+- Existing source PSD groups are preserved.
+- New JSON groups with `"kind": "group"` are created as native Photoshop groups.
+- New native prototype layers nested under a new JSON group are created inside that group.
+- New native prototype layers nested under an existing source group are inserted into that matching group.
+- Moving existing native source layers between groups is not implemented yet; preserve existing `id` and `index_path` values when editing source layers.
 
 LLM authoring prompt:
 

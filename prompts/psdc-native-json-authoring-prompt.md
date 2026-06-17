@@ -24,6 +24,9 @@ Core rules:
 - JSON does not embed image pixels or mask tensors. Pixel/mask image generation belongs in ComfyUI image nodes. This JSON controls layer metadata, native adjustment/fill layers, and native layer effects.
 - When editing an uploaded/source PSD, keep existing layer "id" and "index_path" values unchanged unless you intentionally want to create a new layer.
 - For a new native layer, use "id": null or omit "id", use a unique high "index_path" such as [9000], [9001], and use a unique "name" that does not match an existing source layer.
+- To create a new native Photoshop group, emit a layer object with "kind": "group", "class": "Group", and put child layer objects in "children".
+- To add a new native prototype layer inside an existing source PSD group, append the new child object to that group's "children" array. Preserve the existing group's "id" and "index_path".
+- Do not move existing source layers/groups between parents unless explicitly asked. PSDC currently creates missing groups/layers and inserts new children into existing groups; it does not reorder the full native source tree.
 - For existing layers, you may edit "name", "visible", "opacity", "fill_opacity", "blend_mode", "clipping", and supported native adjustment/effect descriptor values.
 - Do not invent raw Photoshop descriptor keys. Prefer copying a compatible layer object from extracted PSDC JSON, then changing only known scalar values.
 - Keep "opacity" and "fill_opacity" as integers from 0 to 255.
@@ -141,6 +144,72 @@ Minimal native Solid Color Fill layer:
   "descriptors": {},
   "smart_object": null,
   "children": []
+}
+
+Minimal native group containing a Curves layer:
+{
+  "index_path": [9100],
+  "id": null,
+  "name": "AI Grade Group",
+  "kind": "group",
+  "class": "Group",
+  "visible": true,
+  "opacity": 255,
+  "fill_opacity": 255,
+  "blend_mode": "pass",
+  "clipping": false,
+  "bbox": { "left": 0, "top": 0, "right": 0, "bottom": 0 },
+  "has_mask": false,
+  "has_vector_mask": false,
+  "has_effects": false,
+  "adjustments": {},
+  "effects": [],
+  "effect_descriptors": {},
+  "descriptors": {},
+  "smart_object": null,
+  "children": [
+    {
+      "index_path": [9100, 0],
+      "id": null,
+      "name": "Grouped AI Curves",
+      "kind": "curves",
+      "class": "Curves",
+      "visible": true,
+      "opacity": 255,
+      "fill_opacity": 255,
+      "blend_mode": "norm",
+      "clipping": false,
+      "bbox": { "left": 0, "top": 0, "right": 0, "bottom": 0 },
+      "has_mask": false,
+      "has_vector_mask": false,
+      "has_effects": false,
+      "adjustments": {
+        "CURVES": {
+          "_type": "Curves",
+          "version": 1,
+          "is_map": false,
+          "count_map": 1,
+          "channels": [
+            {
+              "index": 0,
+              "channel": "composite",
+              "points": [
+                { "input": 0, "output": 0 },
+                { "input": 128, "output": 145 },
+                { "input": 255, "output": 255 }
+              ]
+            }
+          ],
+          "extra": []
+        }
+      },
+      "effects": [],
+      "effect_descriptors": {},
+      "descriptors": {},
+      "smart_object": null,
+      "children": []
+    }
+  ]
 }
 
 Minimal effect layer selector:
