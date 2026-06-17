@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 from psd_tools import PSDImage
-from psd_tools.constants import BlendMode
+from psd_tools.constants import BlendMode, Tag
 
 try:
     # The v3 node API (and its Autogrow dynamic inputs) only exists on newer
@@ -26,6 +26,8 @@ HAS_AUTOGROW = io is not None and hasattr(io, "Autogrow")
 
 MAX_RESOLUTION = 16384
 PSD_STACK_TYPE = "PSDC_PSD_STACK"
+NODE_DIR = os.path.dirname(os.path.abspath(__file__))
+NATIVE_PROTOTYPE_LIBRARY = os.path.join(NODE_DIR, "assets", "psdc_adjustment_prototypes.psd")
 
 
 def file_sha256(path):
@@ -1093,6 +1095,7 @@ ADJUSTMENT_TAG_TERMS = (
     "BLACK_AND_WHITE",
     "VIBRANCE",
     "COLOR_BALANCE",
+    "COLOR_LOOKUP",
     "SELECTIVE_COLOR",
     "CHANNEL_MIXER",
     "POSTERIZE",
@@ -1886,7 +1889,17 @@ def patch_native_sequence(current_value, json_value):
         updated = tuple(coerce_native_value(value, current_value[index]) for index, value in enumerate(json_value))
         return updated != current_value, updated
 
-    if isinstance(current_value, list):
+    is_list_like = (
+        isinstance(current_value, list)
+        or (
+            not isinstance(current_value, (str, bytes, tuple, dict))
+            and not (hasattr(current_value, "items") and callable(current_value.items))
+            and hasattr(current_value, "__len__")
+            and hasattr(current_value, "__getitem__")
+            and hasattr(current_value, "__setitem__")
+        )
+    )
+    if is_list_like:
         changed = False
         for index, item_json in enumerate(json_value[: len(current_value)]):
             item = current_value[index]
@@ -2111,6 +2124,18 @@ def patch_native_layer_tags(layer, layer_info):
 
             if str(tag_name) == "CURVES" or type(tag_data).__name__ == "Curves":
                 changed = patch_curves_adjustment(tag_data, tag_json)
+            elif isinstance(tag_json, list):
+                changed, _updated = patch_native_sequence(tag_data, tag_json)
+            elif hasattr(tag_data, "value") and not isinstance(tag_json, dict):
+                try:
+                    updated = coerce_native_value(tag_json, tag_data.value)
+                    if updated != tag_data.value:
+                        tag_data.value = updated
+                        changed = True
+                except Exception:
+                    changed = False
+            elif type(tag_data).__name__ == "EmptyElement":
+                changed = False
             else:
                 changed = patch_native_object(tag_data, tag_json)
 
@@ -2168,7 +2193,7 @@ def patch_native_layer_metadata(layer, layer_info):
     return changed
 
 
-def apply_structure_json_to_native_psd(source_path, json_text, output_path):
+def parse_psd_structure_json(json_text):
     try:
         structure = json.loads(json_text)
     except json.JSONDecodeError as error:
@@ -2177,16 +2202,21 @@ def apply_structure_json_to_native_psd(source_path, json_text, output_path):
     if not isinstance(structure, dict):
         raise ValueError("PSD structure JSON must decode to an object.")
 
-    psd = PSDImage.open(source_path)
+    return structure
+
+
+def apply_structure_to_native_psd_object(psd, structure):
     by_index_path, by_id, by_name = native_psd_layer_lookup(psd)
 
     matched_layers = 0
     metadata_updates = 0
     native_tag_updates = 0
+    unmatched_layers = []
 
     for layer_info in iter_json_structure_layers(structure.get("layers")):
         layer = find_native_layer_for_json(layer_info, by_index_path, by_id, by_name)
         if layer is None:
+            unmatched_layers.append(layer_info)
             continue
 
         matched_layers += 1
@@ -2196,11 +2226,163 @@ def apply_structure_json_to_native_psd(source_path, json_text, output_path):
     if metadata_updates or native_tag_updates:
         psd._mark_updated()
 
-    psd.save(output_path)
     return {
         "matched_layers": matched_layers,
         "metadata_updates": metadata_updates,
         "native_tag_updates": native_tag_updates,
+        "unmatched_layers": unmatched_layers,
+    }
+
+
+def apply_structure_json_to_native_psd(source_path, json_text, output_path):
+    structure = parse_psd_structure_json(json_text)
+    psd = PSDImage.open(source_path)
+    result = apply_structure_to_native_psd_object(psd, structure)
+
+    psd.save(output_path)
+    return {
+        **{key: value for key, value in result.items() if key != "unmatched_layers"},
+        "created_layers": 0,
+        "source_path": source_path,
+        "output_path": output_path,
+    }
+
+
+def native_prototype_adjustment_tags(layer):
+    tags = native_tag_lookup(getattr(layer, "tagged_blocks", {}))
+    return [tag_name for tag_name in tags if classify_layer_tag(tag_name) == "adjustments"]
+
+
+def load_native_prototype_lookup(library_path=None):
+    library_path = library_path or NATIVE_PROTOTYPE_LIBRARY
+    if not os.path.isfile(library_path):
+        raise ValueError(f"Missing PSDC native prototype library: {library_path}")
+
+    library_psd = PSDImage.open(library_path)
+    lookup = {}
+    for layer in library_psd:
+        for tag_name in native_prototype_adjustment_tags(layer):
+            lookup.setdefault(tag_name, layer)
+        lookup.setdefault(str(getattr(layer, "kind", "")).lower(), layer)
+        lookup.setdefault(type(layer).__name__.lower(), layer)
+
+    return lookup
+
+
+def native_layer_info_tag_names(layer_info):
+    adjustments = layer_info.get("adjustments")
+    if not isinstance(adjustments, dict):
+        return []
+    return [str(tag_name) for tag_name in adjustments.keys()]
+
+
+def prototype_key_for_layer_info(layer_info):
+    tag_names = native_layer_info_tag_names(layer_info)
+    if tag_names:
+        return tag_names[0]
+
+    kind = str(layer_info.get("kind", "")).lower()
+    if kind:
+        return kind
+
+    class_name = str(layer_info.get("class", "")).lower()
+    if class_name:
+        return class_name
+
+    return None
+
+
+def max_native_layer_id(psd):
+    max_layer_id = 0
+    for _index_path, layer in iter_native_psd_layers(psd):
+        try:
+            layer_id = int(layer_id_from_tags(layer) or 0)
+        except (TypeError, ValueError):
+            layer_id = 0
+        max_layer_id = max(max_layer_id, layer_id)
+    return max_layer_id
+
+
+def assign_native_layer_id(layer, layer_id):
+    try:
+        layer.tagged_blocks.set_data(Tag.LAYER_ID, int(layer_id))
+    except Exception:
+        pass
+
+
+def clone_native_prototype_layer(layer_info, prototype_lookup, layer_id):
+    prototype_key = prototype_key_for_layer_info(layer_info)
+    if not prototype_key:
+        return None
+
+    prototype = prototype_lookup.get(prototype_key)
+    if prototype is None:
+        prototype = prototype_lookup.get(str(prototype_key).lower())
+    if prototype is None:
+        return None
+
+    layer = copy.deepcopy(prototype)
+    assign_native_layer_id(layer, layer_id)
+    patch_native_layer_metadata(layer, layer_info)
+    patch_native_layer_tags(layer, layer_info)
+    return layer
+
+
+def document_size_from_json_structure(structure):
+    selected = collect_structure_layers(structure.get("layers"), "all_layers")
+    return document_size_from_structure(structure, selected)
+
+
+def create_native_psd_from_structure_json(json_text, output_path, source_psd=None, layer_mode="all_layers"):
+    structure = parse_psd_structure_json(json_text)
+    source_path = psd_stack_source_path(source_psd) if is_psd_stack(source_psd) else None
+    if source_path:
+        psd = PSDImage.open(source_path)
+        patch_result = apply_structure_to_native_psd_object(psd, structure)
+        candidate_layers = patch_result["unmatched_layers"]
+    else:
+        width, height = document_size_from_json_structure(structure)
+        psd = PSDImage.new("RGB", (int(width), int(height)))
+        patch_result = {
+            "matched_layers": 0,
+            "metadata_updates": 0,
+            "native_tag_updates": 0,
+            "unmatched_layers": list(iter_json_structure_layers(structure.get("layers"))),
+        }
+        candidate_layers = patch_result["unmatched_layers"]
+
+    if layer_mode == "top_level":
+        candidate_layers = [
+            layer_info for layer_info, _group_path in collect_structure_layers(structure.get("layers"), "top_level")
+            if layer_info in candidate_layers
+        ]
+
+    prototype_lookup = load_native_prototype_lookup()
+    next_layer_id = max_native_layer_id(psd) + 1
+    created_layers = 0
+    skipped_layers = 0
+
+    for layer_info in candidate_layers:
+        if not native_layer_info_tag_names(layer_info):
+            continue
+        layer = clone_native_prototype_layer(layer_info, prototype_lookup, next_layer_id)
+        if layer is None:
+            skipped_layers += 1
+            continue
+        next_layer_id += 1
+        psd.append(layer)
+        created_layers += 1
+
+    if created_layers:
+        psd._mark_updated()
+
+    psd.save(output_path)
+    return {
+        "matched_layers": patch_result["matched_layers"],
+        "metadata_updates": patch_result["metadata_updates"],
+        "native_tag_updates": patch_result["native_tag_updates"],
+        "created_layers": created_layers,
+        "skipped_layers": skipped_layers,
         "source_path": source_path,
         "output_path": output_path,
     }
@@ -2501,6 +2683,64 @@ class PSDC_NativePSDStructureJSONApply:
             f"native_tag_updates={result['native_tag_updates']})"
         )
         logging.info("PSDC native JSON apply %s", message)
+        return {"ui": {"text": [message]}, "result": (output_path,)}
+
+
+class PSDC_NativePSDStructureJSONDecode:
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "json_text": ("STRING", {"multiline": True, "dynamicPrompts": False}),
+                "filename_prefix": ("STRING", {"default": "PSDC_Native_JSON_Decode"}),
+                "layer_mode": (["all_layers", "top_level"],),
+            },
+            "optional": {
+                "source_psd": ("PSD",),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("path",)
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+    CATEGORY = "PSDC/Image"
+
+    def execute(self, json_text, filename_prefix="PSDC_Native_JSON_Decode", layer_mode="all_layers", source_psd=None):
+        structure = parse_psd_structure_json(json_text)
+        if is_psd_stack(source_psd):
+            width = int(source_psd.get("width", 1))
+            height = int(source_psd.get("height", 1))
+        else:
+            width, height = document_size_from_json_structure(structure)
+
+        full_output_folder, filename, counter, _subfolder, _filename_prefix = folder_paths.get_save_image_path(
+            filename_prefix,
+            self.output_dir,
+            int(width),
+            int(height),
+        )
+        file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
+        output_path = os.path.join(full_output_folder, file)
+
+        result = create_native_psd_from_structure_json(
+            json_text,
+            output_path,
+            source_psd=source_psd,
+            layer_mode=layer_mode,
+        )
+        message = (
+            f"Saved native decoded PSD: {output_path} "
+            f"(matched_layers={result['matched_layers']}, "
+            f"metadata_updates={result['metadata_updates']}, "
+            f"native_tag_updates={result['native_tag_updates']}, "
+            f"created_layers={result['created_layers']}, "
+            f"skipped_layers={result['skipped_layers']})"
+        )
+        logging.info("PSDC native JSON decode %s", message)
         return {"ui": {"text": [message]}, "result": (output_path,)}
 
 
@@ -2823,6 +3063,7 @@ NODE_CLASS_MAPPINGS = {
     "PSDC PSD Structure JSON": PSDC_PSDStructureJSON,
     "PSDC PSD Structure JSON Decode": PSDC_PSDStructureJSONDecode,
     "PSDC Native PSD Structure JSON Apply": PSDC_NativePSDStructureJSONApply,
+    "PSDC Native PSD Structure JSON Decode": PSDC_NativePSDStructureJSONDecode,
     "PSDC Preview PSD": PSDC_PreviewPSD,
     "PSDC Save PSD": PSDC_SavePSD,
     "PSDC Extract Alpha": PSDC_ExtractAlpha,
@@ -2838,6 +3079,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PSDC PSD Structure JSON": "PSDC PSD Structure JSON",
     "PSDC PSD Structure JSON Decode": "PSDC PSD Structure JSON Decode",
     "PSDC Native PSD Structure JSON Apply": "PSDC Native PSD Structure JSON Apply",
+    "PSDC Native PSD Structure JSON Decode": "PSDC Native PSD Structure JSON Decode",
     "PSDC Preview PSD": "PSDC Preview PSD",
     "PSDC Save PSD": "PSDC Save PSD",
     "PSDC Extract Alpha": "PSDC Extract Alpha",

@@ -185,6 +185,42 @@ Supported native edits:
 
 The node intentionally does not create brand-new native adjustment/effect layers from JSON. To keep Photoshop editability reliable, create the native layer in the template PSD first, extract JSON, edit the existing layer values, and apply the JSON back to that PSD.
 
+### PSDC Native PSD Structure JSON Decode
+
+Creates a native PSD from structure JSON using the bundled Photoshop-native adjustment prototype library. This is the path for AI-authored JSON that needs to create editable adjustment layers from scratch, or add new editable adjustment layers above an uploaded PSD.
+
+Inputs:
+
+- `json_text`: PSD structure JSON.
+- `filename_prefix`: Output filename prefix.
+- `layer_mode`: `all_layers` creates native prototype layers from nested children as well as top-level layers. `top_level` only uses top-level JSON layers.
+- `source_psd`: Optional PSDC stack from `PSDC Load PSD`. When connected, the source PSD is preserved as the native base, matching layers are patched, and unmatched JSON adjustment layers are cloned from the prototype library and appended above it.
+
+Outputs:
+
+- `path`: The saved native PSD path.
+
+Bundled native adjustment prototypes:
+
+- Vibrance
+- Brightness/Contrast
+- Levels
+- Curves
+- Exposure
+- Hue/Saturation
+- Color Balance
+- Black & White
+- Photo Filter
+- Channel Mixer
+- Color Lookup
+- Selective Color
+- Invert
+- Posterize
+- Threshold
+- Gradient Map
+
+The bundled library currently does not include a native editable Solid Color Fill prototype. A plain pixel layer filled with a color is not the same as Photoshop's native Solid Color Fill adjustment/fill layer.
+
 JSON object format:
 
 ```json
