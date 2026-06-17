@@ -134,7 +134,7 @@ Outputs:
 
 ### PSDC JSON Encoder
 
-Extracts a JSON text description of a `PSD` stack. Use it directly after `PSDC Load PSD` when you want the original Photoshop layer tree, adjustment/fill descriptors, smart object metadata, and layer effects that `psd-tools` can read. Generated or edited PSDC stacks also work, but they contain the synthetic current layer layout because original Photoshop-only descriptors do not exist in that path.
+Extracts a JSON text description of a `PSD` stack. Use it directly after `PSDC Load PSD` when you want the original Photoshop layer tree, adjustment/fill descriptors, smart object metadata, embedded PSD/PSB text layers, and layer effects that `psd-tools` can read. Generated or edited PSDC stacks also work, but they contain the synthetic current layer layout because original Photoshop-only descriptors do not exist in that path.
 
 Inputs:
 
@@ -144,6 +144,8 @@ Inputs:
 Outputs:
 
 - `json`: A `STRING` containing the extracted structure.
+
+Loaded native PSDs now emit `psdc.native_snapshot.v1` JSON. It keeps the legacy fields used by `PSDC JSON Decoder`, while also adding `common`, `editable`, `raw_refs`, `path`, `parent_id`, `smart_object_chain`, and `supported_operations` fields for safer LLM targeting.
 
 ### PSDC JSON Decoder
 
@@ -184,6 +186,58 @@ Supported native edits:
 - Existing adjustment/effect/descriptor tagged blocks where the value already exists in the source PSD and can be safely patched as primitive values or nested descriptor values.
 
 The node intentionally does not create brand-new native adjustment/effect layers from JSON. To keep Photoshop editability reliable, create the native layer in the template PSD first, extract JSON, edit the existing layer values, and apply the JSON back to that PSD.
+
+### PSDC Native Patch Validate
+
+Validates a small `psdc.native_patch.v1` operation list against a loaded source PSD before saving anything.
+
+Inputs:
+
+- `source_psd`: A PSDC `PSD` stack from `PSDC Load PSD`.
+- `snapshot_json`: Snapshot JSON from `PSDC JSON Encoder`, used as LLM/editing context.
+- `patch_json`: Patch JSON authored by an LLM or another text node.
+
+Outputs:
+
+- `normalized_patch_json`: The patch normalized to PSDC's patch schema.
+- `validation_report`: JSON report containing validated and failed operations.
+
+Supported patch operations:
+
+- `rename_layer`
+- `set_visibility`
+- `set_opacity`
+- `set_fill_opacity`
+- `set_blend_mode`
+- `set_clipping`
+- `replace_text`
+- `set_adjustment`
+- `set_effect`
+- `create_group`
+
+### PSDC Native Patch Apply
+
+Applies a `psdc.native_patch.v1` patch to the original native PSD from `PSDC Load PSD` and saves a new PSD.
+
+This is the preferred LLM edit path:
+
+```text
+PSD -> PSDC JSON Encoder -> LLM patch JSON -> PSDC Native Patch Validate -> PSDC Native Patch Apply -> PSD
+```
+
+Patch apply preserves untouched native Photoshop data. The initial native text implementation supports single-style-run type layers and text inside embedded PSD/PSB smart objects, including the `Title Treatment 100.psb` style of template layer. It updates the text descriptor, EngineData text, and EngineData run lengths. Photoshop may still need to refresh stale cached previews after opening the patched file.
+
+Curves adjustments can be patched semantically through `set_adjustment`. Other adjustment/fill/effect layers remain descriptor-backed; copy compatible raw descriptor values from the snapshot when using `set_effect`.
+
+### PSDC Native Patch Authoring Prompt
+
+Outputs the bundled LLM prompt from:
+
+```text
+prompts/psdc-native-json-authoring-prompt.md
+```
+
+Use this prompt when you want the model to read a full snapshot but emit only a small, validated `psdc.native_patch.v1` edit list.
 
 ### PSDC Native PSD Structure JSON Decode
 

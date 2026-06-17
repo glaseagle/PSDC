@@ -6,6 +6,7 @@ import os
 import random
 import shutil
 from enum import Enum as PyEnum
+from io import BytesIO
 
 import folder_paths
 import numpy as np
@@ -36,6 +37,13 @@ def file_sha256(path):
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
+    return digest.hexdigest()
+
+
+def file_sha256_head(path, length=1024 * 1024):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        digest.update(handle.read(length))
     return digest.hexdigest()
 
 
@@ -1190,14 +1198,314 @@ def serialize_smart_object(layer):
     return result
 
 
-def serialize_layer_structure(layer, index_path):
+def stable_json_sha256(value):
+    try:
+        payload = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+    except Exception:
+        payload = repr(value).encode("utf-8", errors="replace")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def tagged_block_names(layer):
+    tagged_blocks = getattr(layer, "tagged_blocks", None)
+    if not tagged_blocks:
+        return []
+    return [layer_tag_name(tag) for tag in tagged_blocks.keys()]
+
+
+def native_layer_common(layer_info):
+    return {
+        "visible": layer_info.get("visible", True),
+        "opacity": layer_info.get("opacity", 255),
+        "fill_opacity": layer_info.get("fill_opacity", 255),
+        "blend_mode": layer_info.get("blend_mode"),
+        "clipping": layer_info.get("clipping", False),
+        "locked": False,
+    }
+
+
+def native_layer_raw_refs(layer, tags):
+    descriptor_checksums = {}
+    for category in ("adjustments", "effect_descriptors", "descriptors"):
+        category_tags = tags.get(category, {})
+        if not isinstance(category_tags, dict):
+            continue
+        for tag_name, tag_value in category_tags.items():
+            descriptor_checksums[str(tag_name)] = "sha256:" + stable_json_sha256(tag_value)[:24]
+
+    return {
+        "layer_id_tag": "LAYER_ID" if layer_id_from_tags(layer) is not None else None,
+        "descriptor_checksums": descriptor_checksums,
+        "tagged_blocks": tagged_block_names(layer),
+    }
+
+
+def engine_data_value(value):
+    if hasattr(value, "value"):
+        return value.value
+    return value
+
+
+def engine_data_list_values(value):
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [engine_data_value(item) for item in value]
+
+
+def serialize_text_editable(layer):
+    if str(getattr(layer, "kind", "")).lower() != "type":
+        return None
+
+    try:
+        contents = str(layer.text)
+    except Exception:
+        return None
+
+    text_type = None
+    try:
+        text_type = psd_value_to_json(layer.text_type)
+        if isinstance(text_type, dict):
+            text_type = text_type.get("name") or text_type.get("value")
+    except Exception:
+        pass
+
+    style_run_lengths = []
+    paragraph_run_lengths = []
+    fonts = []
+    runs = []
+
+    try:
+        engine_dict = layer.engine_dict
+        style_run = engine_dict.get("StyleRun", {})
+        paragraph_run = engine_dict.get("ParagraphRun", {})
+        style_run_lengths = engine_data_list_values(style_run.get("RunLengthArray", []))
+        paragraph_run_lengths = engine_data_list_values(paragraph_run.get("RunLengthArray", []))
+        run_array = style_run.get("RunArray", [])
+        resource_dict = layer.resource_dict
+        font_set = resource_dict.get("FontSet", []) if resource_dict else []
+
+        for index, font in enumerate(font_set):
+            font_json = psd_value_to_json(font)
+            font_info = {"index": index}
+            if isinstance(font_json, dict):
+                font_info["postscript_name"] = font_json.get("Name") or font_json.get("PostScriptName")
+                font_info["family"] = font_json.get("FontFamilyName") or font_json.get("FamilyName")
+                font_info["style"] = font_json.get("FontStyleName") or font_json.get("StyleName")
+            fonts.append(font_info)
+
+        cursor = 0
+        for run_index, run in enumerate(run_array):
+            run_length = int(style_run_lengths[run_index]) if run_index < len(style_run_lengths) else len(contents)
+            style_data = {}
+            try:
+                style_data = run.get("StyleSheet", {}).get("StyleSheetData", {})
+            except Exception:
+                style_data = {}
+            run_info = {
+                "start": cursor,
+                "end": max(cursor, cursor + max(0, run_length - 1)),
+                "font": engine_data_value(style_data.get("Font")) if hasattr(style_data, "get") else None,
+                "font_size": engine_data_value(style_data.get("FontSize")) if hasattr(style_data, "get") else None,
+            }
+            runs.append(run_info)
+            cursor += run_length
+    except Exception:
+        pass
+
+    single_style_run = len(style_run_lengths) <= 1 and len(paragraph_run_lengths) <= 1
+    result = {
+        "contents": contents,
+        "text_type": text_type,
+        "single_style_run": single_style_run,
+        "style_run_count": len(style_run_lengths),
+        "paragraph_run_count": len(paragraph_run_lengths),
+        "fonts": fonts,
+        "runs": runs,
+        "supported_operations": ["replace_text"] if single_style_run else [],
+    }
+    if not single_style_run:
+        result["unsupported_reasons"] = {
+            "replace_text": "Text layer has multiple style or paragraph runs.",
+        }
+    return result
+
+
+def semantic_adjustment_projection(layer_info):
+    adjustments = layer_info.get("adjustments")
+    if not isinstance(adjustments, dict) or not adjustments:
+        return None
+
+    if "CURVES" in adjustments and isinstance(adjustments["CURVES"], dict):
+        curves = copy.deepcopy(adjustments["CURVES"])
+        curves["type"] = "curves"
+        curves["supported_operations"] = ["set_adjustment"]
+        return curves
+
+    first_tag, first_value = next(iter(adjustments.items()))
+    result = {
+        "type": normalize_prototype_key(first_tag),
+        "supported_operations": ["set_adjustment"],
+    }
+    if isinstance(first_value, dict):
+        result["raw"] = first_value
+    return result
+
+
+def semantic_fill_projection(layer_info):
+    kind = str(layer_info.get("kind", "")).lower()
+    adjustments = layer_info.get("adjustments")
+    if not isinstance(adjustments, dict):
+        adjustments = {}
+
+    if "solid" in kind:
+        return {
+            "type": "solid_color",
+            "supported_operations": ["set_adjustment"],
+            "raw": adjustments,
+        }
+    if "gradient" in kind:
+        return {
+            "type": "gradient",
+            "supported_operations": ["set_adjustment"],
+            "raw": adjustments,
+        }
+    return None
+
+
+def semantic_effects_projection(layer_info):
+    effect_descriptors = layer_info.get("effect_descriptors")
+    effects = layer_info.get("effects")
+    if not effect_descriptors and not effects:
+        return None
+    return {
+        "supported_operations": ["set_effect"],
+        "raw_descriptors": effect_descriptors or {},
+        "parsed": effects or [],
+    }
+
+
+def native_layer_supported_operations(layer, layer_info):
+    operations = ["rename_layer", "set_visibility", "set_opacity", "set_blend_mode", "set_clipping"]
+    if hasattr(layer, "fill_opacity"):
+        operations.append("set_fill_opacity")
+    if str(getattr(layer, "kind", "")).lower() == "type":
+        text = serialize_text_editable(layer)
+        if text and "replace_text" in text.get("supported_operations", []):
+            operations.append("replace_text")
+    smart_object = layer_info.get("smart_object")
+    if isinstance(smart_object, dict) and smart_object.get("editable_embedded_psd"):
+        operations.append("replace_text")
+    if layer_info.get("adjustments"):
+        operations.append("set_adjustment")
+    if layer_info.get("effect_descriptors") or layer_info.get("effects"):
+        operations.append("set_effect")
+    if layer.is_group():
+        operations.append("create_group")
+    return operations
+
+
+def native_layer_editable_projection(layer, layer_info):
+    editable = {}
+
+    text = serialize_text_editable(layer)
+    if text:
+        editable["text"] = text
+
+    adjustment = semantic_adjustment_projection(layer_info)
+    if adjustment:
+        editable["adjustment"] = adjustment
+
+    fill = semantic_fill_projection(layer_info)
+    if fill:
+        editable["fill"] = fill
+
+    effects = semantic_effects_projection(layer_info)
+    if effects:
+        editable["effects"] = effects
+
+    smart_object = layer_info.get("smart_object")
+    if isinstance(smart_object, dict):
+        editable["smart_object"] = {
+            **smart_object,
+            "supported_operations": ["replace_text"] if smart_object.get("editable_embedded_psd") else [],
+        }
+
+    if layer.is_group():
+        editable["group"] = {
+            "expanded": True,
+            "pass_through": True,
+            "supported_operations": ["rename_layer", "set_visibility", "move_layer", "create_group"],
+        }
+
+    return editable
+
+
+def smart_object_chain_entry(layer, smart_object):
+    return {
+        "layer_id": layer_id_from_tags(layer),
+        "name": getattr(layer, "name", ""),
+        "filename": smart_object.get("filename") if isinstance(smart_object, dict) else None,
+        "filetype": smart_object.get("filetype") if isinstance(smart_object, dict) else None,
+        "kind": smart_object.get("kind") if isinstance(smart_object, dict) else None,
+    }
+
+
+def serialize_embedded_psd_document(layer, layer_path, smart_object_chain, include_nested_smart_objects):
+    smart_object = getattr(layer, "smart_object", None)
+    if not smart_object:
+        return None
+
+    try:
+        if not smart_object.is_psd():
+            return None
+        with smart_object.open() as handle:
+            embedded_psd = PSDImage.open(handle)
+    except Exception as error:
+        return {"error": str(error)}
+
+    return {
+        "width": int(embedded_psd.width),
+        "height": int(embedded_psd.height),
+        "layers": [
+            serialize_layer_structure(
+                child,
+                (index,),
+                parent_id=None,
+                path=layer_path,
+                include_nested_smart_objects=include_nested_smart_objects,
+                smart_object_chain=smart_object_chain,
+            )
+            for index, child in enumerate(embedded_psd)
+        ],
+    }
+
+
+def serialize_layer_structure(
+    layer,
+    index_path,
+    parent_id=None,
+    path=None,
+    include_nested_smart_objects=True,
+    smart_object_chain=None,
+):
+    layer_name = layer.name or ""
+    layer_path = list(path or []) + [layer_name]
+    layer_id = layer_id_from_tags(layer)
     bbox = tuple(int(value) for value in getattr(layer, "bbox", (0, 0, 0, 0)))
+    tags = serialize_layer_tags(layer)
     layer_info = {
         "index_path": list(index_path),
-        "id": layer_id_from_tags(layer),
-        "name": layer.name or "",
+        "id": layer_id,
+        "parent_id": parent_id,
+        "path": layer_path,
+        "smart_object_chain": copy.deepcopy(smart_object_chain) if smart_object_chain else [],
+        "name": layer_name,
         "kind": str(getattr(layer, "kind", "")),
         "class": type(layer).__name__,
+        "order": {
+            "sibling_index": int(index_path[-1]) if index_path else 0,
+            "stack_order": "psd-tools-iteration-order",
+        },
         "visible": bool(getattr(layer, "visible", True)),
         "opacity": int(getattr(layer, "opacity", 255)),
         "fill_opacity": int(getattr(layer, "fill_opacity", 255)),
@@ -1214,16 +1522,20 @@ def serialize_layer_structure(layer, index_path):
         "smart_object": None,
         "children": [],
     }
+    layer_info["common"] = native_layer_common(layer_info)
 
     smart_object = serialize_smart_object(layer)
     if smart_object:
         layer_info["smart_object"] = smart_object
+        try:
+            smart_object["editable_embedded_psd"] = bool(getattr(layer, "smart_object").is_psd())
+        except Exception:
+            smart_object["editable_embedded_psd"] = False
 
     effects = serialize_layer_effects(layer)
     if effects:
         layer_info["effects"] = effects
 
-    tags = serialize_layer_tags(layer)
     if tags["adjustments"]:
         layer_info["adjustments"] = tags["adjustments"]
     if tags["effect_descriptors"]:
@@ -1231,26 +1543,87 @@ def serialize_layer_structure(layer, index_path):
     if tags["descriptors"]:
         layer_info["descriptors"] = tags["descriptors"]
 
+    layer_info["editable"] = native_layer_editable_projection(layer, layer_info)
+    layer_info["raw_refs"] = native_layer_raw_refs(layer, tags)
+    layer_info["supported_operations"] = native_layer_supported_operations(layer, layer_info)
+
+    if smart_object and include_nested_smart_objects and smart_object.get("editable_embedded_psd"):
+        nested_chain = list(copy.deepcopy(smart_object_chain) if smart_object_chain else [])
+        nested_chain.append(smart_object_chain_entry(layer, smart_object))
+        layer_info["embedded_document"] = serialize_embedded_psd_document(
+            layer,
+            layer_path,
+            nested_chain,
+            include_nested_smart_objects,
+        )
+
     if layer.is_group():
         layer_info["children"] = [
-            serialize_layer_structure(child, index_path + (index,)) for index, child in enumerate(layer)
+            serialize_layer_structure(
+                child,
+                index_path + (index,),
+                parent_id=layer_id,
+                path=layer_path,
+                include_nested_smart_objects=include_nested_smart_objects,
+                smart_object_chain=smart_object_chain,
+            )
+            for index, child in enumerate(layer)
         ]
 
     return layer_info
 
 
-def serialize_psd_document(psd, source_path=None):
+def serialize_psd_document(psd, source_path=None, include_nested_smart_objects=True):
+    fingerprint = {}
+    if source_path and os.path.isfile(source_path):
+        try:
+            fingerprint = {
+                "size": os.path.getsize(source_path),
+                "mtime": str(os.path.getmtime(source_path)),
+                "sha256_head": file_sha256_head(source_path)[:24],
+            }
+        except Exception:
+            fingerprint = {}
+
     return {
-        "schema": "psdc.psd_structure.v1",
+        "schema": "psdc.native_snapshot.v1",
         "description": "Layer/effect/adjustment metadata extracted from a Photoshop PSD. Pixel tensors are not embedded.",
-        "source": {"path": str(source_path) if source_path else None, "filename": os.path.basename(str(source_path)) if source_path else None},
+        "source": {
+            "path": str(source_path) if source_path else None,
+            "filename": os.path.basename(str(source_path)) if source_path else None,
+            "fingerprint": fingerprint,
+        },
         "document": {
             "width": int(psd.width),
             "height": int(psd.height),
+            "color_mode": "RGB",
+            "depth": int(getattr(getattr(psd, "_record", None), "header", {}).depth) if hasattr(getattr(psd, "_record", None), "header") else 8,
             "layer_count_top_level": len(psd),
             "layer_order": "array order follows psd-tools iteration order used by PSDC; children preserve their group nesting.",
         },
-        "layers": [serialize_layer_structure(layer, (index,)) for index, layer in enumerate(psd)],
+        "capabilities": {
+            "supports_patch_schema": ["psdc.native_patch.v1"],
+            "supports_operations": [
+                "rename_layer",
+                "set_visibility",
+                "set_opacity",
+                "set_fill_opacity",
+                "set_blend_mode",
+                "set_clipping",
+                "replace_text",
+                "set_adjustment",
+                "set_effect",
+                "create_group",
+            ],
+        },
+        "layers": [
+            serialize_layer_structure(
+                layer,
+                (index,),
+                include_nested_smart_objects=include_nested_smart_objects,
+            )
+            for index, layer in enumerate(psd)
+        ],
     }
 
 
@@ -2260,6 +2633,504 @@ def apply_structure_json_to_native_psd(source_path, json_text, output_path):
     }
 
 
+NATIVE_PATCH_SCHEMA = "psdc.native_patch.v1"
+NATIVE_PATCH_REPORT_SCHEMA = "psdc.native_patch_report.v1"
+SUPPORTED_NATIVE_PATCH_OPERATIONS = {
+    "rename_layer",
+    "set_visibility",
+    "set_opacity",
+    "set_fill_opacity",
+    "set_blend_mode",
+    "set_clipping",
+    "replace_text",
+    "set_adjustment",
+    "set_effect",
+    "create_group",
+}
+
+ADJUSTMENT_PATCH_TAGS = {
+    "curves": "CURVES",
+    "levels": "LEVELS",
+    "hue_saturation": "HUE_SATURATION",
+    "brightness_contrast": "BRIGHTNESS_AND_CONTRAST",
+    "brightness_and_contrast": "BRIGHTNESS_AND_CONTRAST",
+    "exposure": "EXPOSURE",
+    "color_balance": "COLOR_BALANCE",
+    "black_and_white": "BLACK_AND_WHITE",
+    "gradient_map": "GRADIENT_MAP",
+    "solid_color": "SOLID_COLOR_SHEET_SETTING",
+}
+
+
+def parse_native_patch_json(patch_json):
+    try:
+        patch = json.loads(patch_json)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Invalid PSDC native patch JSON: {error}") from error
+
+    if not isinstance(patch, dict):
+        raise ValueError("PSDC native patch JSON must decode to an object.")
+
+    schema = patch.get("schema", NATIVE_PATCH_SCHEMA)
+    if schema != NATIVE_PATCH_SCHEMA:
+        raise ValueError(f"Unsupported native patch schema: {schema}")
+
+    operations = patch.get("operations")
+    if not isinstance(operations, list):
+        raise ValueError("PSDC native patch JSON must contain an operations array.")
+
+    normalized = {
+        "schema": NATIVE_PATCH_SCHEMA,
+        "source": patch.get("source", {}) if isinstance(patch.get("source", {}), dict) else {},
+        "operations": [],
+    }
+    for index, operation in enumerate(operations):
+        if not isinstance(operation, dict):
+            normalized["operations"].append({"op": None, "_error": f"Operation {index} is not an object."})
+            continue
+        normalized["operations"].append(copy.deepcopy(operation))
+    return normalized
+
+
+def iter_native_psd_layers_with_paths(container, index_path=(), name_path=()):
+    for index, layer in enumerate(container):
+        current_index_path = index_path + (index,)
+        current_name_path = name_path + (getattr(layer, "name", "") or "",)
+        yield current_index_path, current_name_path, layer
+        if layer.is_group():
+            yield from iter_native_psd_layers_with_paths(layer, current_index_path, current_name_path)
+
+
+def native_layer_target_index(psd):
+    by_index_path = {}
+    by_id = {}
+    by_path = {}
+    by_name = {}
+
+    for index_path, name_path, layer in iter_native_psd_layers_with_paths(psd):
+        by_index_path[index_path] = layer
+        by_path[name_path] = layer
+        by_name.setdefault(getattr(layer, "name", "") or "", []).append(layer)
+
+        layer_id = layer_id_from_tags(layer)
+        if layer_id is not None:
+            by_id.setdefault(str(layer_id), layer)
+
+    return {
+        "by_index_path": by_index_path,
+        "by_id": by_id,
+        "by_path": by_path,
+        "by_name": by_name,
+    }
+
+
+def target_layer_id(target):
+    for key in ("id", "layer_id"):
+        if key in target and target[key] is not None:
+            return str(target[key])
+    return None
+
+
+def coerce_index_path(value):
+    if not isinstance(value, list):
+        return None
+    try:
+        return tuple(int(item) for item in value)
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_native_layer_target(psd, target):
+    if not isinstance(target, dict):
+        return None, "Target must be an object."
+
+    index = native_layer_target_index(psd)
+
+    layer_id = target_layer_id(target)
+    if layer_id is not None and layer_id in index["by_id"]:
+        return index["by_id"][layer_id], None
+
+    index_path = coerce_index_path(target.get("index_path"))
+    if index_path is not None and index_path in index["by_index_path"]:
+        return index["by_index_path"][index_path], None
+
+    path = target.get("path")
+    if isinstance(path, list) and path:
+        path_tuple = tuple(str(part) for part in path)
+        if path_tuple in index["by_path"]:
+            return index["by_path"][path_tuple], None
+        suffix_matches = [
+            layer
+            for candidate_path, layer in index["by_path"].items()
+            if len(candidate_path) <= len(path_tuple) and path_tuple[-len(candidate_path) :] == candidate_path
+        ]
+        if len(suffix_matches) == 1:
+            return suffix_matches[0], None
+
+    name = target.get("name")
+    if not name and isinstance(path, list) and path:
+        name = path[-1]
+    if name:
+        matches = index["by_name"].get(str(name), [])
+        if len(matches) == 1:
+            return matches[0], None
+        if len(matches) > 1:
+            return None, f"Layer name '{name}' is ambiguous; use id or index_path."
+
+    return None, "Could not resolve target layer by id, index_path, path, or unique name."
+
+
+def opacity_to_native_value(value, unit=None):
+    if str(unit or "").lower() == "percent":
+        return clamp_int(round(float(value) * 255.0 / 100.0), 255, 0, 255)
+    return clamp_int(value, 255, 0, 255)
+
+
+def text_layer_run_arrays(layer):
+    try:
+        engine_dict = layer._engine_data.get("EngineDict", {})
+        return [
+            engine_dict.get("StyleRun", {}).get("RunLengthArray", []),
+            engine_dict.get("ParagraphRun", {}).get("RunLengthArray", []),
+        ]
+    except Exception:
+        return []
+
+
+def text_layer_has_single_run(layer):
+    run_arrays = text_layer_run_arrays(layer)
+    if not run_arrays:
+        return False
+    return all(len(run_array) <= 1 for run_array in run_arrays)
+
+
+def set_text_layer_run_lengths(layer, run_length):
+    for run_array in text_layer_run_arrays(layer):
+        if len(run_array) == 0:
+            continue
+        if len(run_array) != 1 or not hasattr(run_array[0], "value"):
+            raise ValueError("Only single-style-run text layers are supported for replace_text.")
+        run_array[0].value = int(run_length)
+
+
+def replace_type_layer_text(layer, new_text):
+    if str(getattr(layer, "kind", "")).lower() != "type":
+        raise ValueError("Target is not a Photoshop type layer.")
+    if not text_layer_has_single_run(layer):
+        raise ValueError("Only single-style-run text layers are supported for replace_text.")
+
+    old_text = str(layer.text)
+    new_text = str(new_text)
+
+    text_data = getattr(layer, "_data", None).text_data
+    text_data.get(b"Txt ").value = new_text + "\x00"
+    layer._engine_data["EngineDict"]["Editor"]["Text"].value = new_text + "\r"
+    set_text_layer_run_lengths(layer, len(new_text) + 1)
+    return old_text
+
+
+def psd_to_bytes(psd):
+    output = BytesIO()
+    psd.save(output)
+    return output.getvalue()
+
+
+def open_embedded_smart_object_psd(layer):
+    smart_object = getattr(layer, "smart_object", None)
+    if not smart_object:
+        raise ValueError("Target layer is not a smart object.")
+    if not smart_object.is_psd():
+        raise ValueError("Target smart object is not an embedded PSD/PSB.")
+    with smart_object.open() as handle:
+        return PSDImage.open(handle)
+
+
+def write_embedded_smart_object_psd(layer, embedded_psd):
+    smart_object = getattr(layer, "smart_object", None)
+    if not smart_object or getattr(smart_object, "_data", None) is None:
+        raise ValueError("Target smart object has no writable embedded data.")
+    data = psd_to_bytes(embedded_psd)
+    smart_object._data.data = data
+    try:
+        smart_object._data.filesize = len(data)
+    except Exception:
+        pass
+
+
+def text_layers_in_psd(psd):
+    return [layer for _index_path, layer in iter_native_psd_layers(psd) if str(getattr(layer, "kind", "")).lower() == "type"]
+
+
+def replace_text_in_embedded_smart_object(smart_layer, target, value, smart_object_chain):
+    embedded_psd = open_embedded_smart_object_psd(smart_layer)
+
+    if smart_object_chain:
+        next_smart_layer, error = resolve_native_layer_target(embedded_psd, smart_object_chain[0])
+        if next_smart_layer is None:
+            raise ValueError(error or "Could not resolve nested smart object target.")
+        old_text = replace_text_in_embedded_smart_object(next_smart_layer, target, value, smart_object_chain[1:])
+    else:
+        child_target = copy.deepcopy(target) if isinstance(target, dict) else {}
+        child_target.pop("smart_object_chain", None)
+        text_layer, error = resolve_native_layer_target(embedded_psd, child_target)
+        if text_layer is None or str(getattr(text_layer, "kind", "")).lower() != "type":
+            candidates = text_layers_in_psd(embedded_psd)
+            if len(candidates) == 1:
+                text_layer = candidates[0]
+            else:
+                raise ValueError(error or "Could not resolve embedded text layer.")
+        old_text = replace_type_layer_text(text_layer, value)
+
+    embedded_psd._mark_updated()
+    write_embedded_smart_object_psd(smart_layer, embedded_psd)
+    return old_text
+
+
+def replace_text_operation(psd, operation):
+    target = operation.get("target", {})
+    value = operation.get("value", "")
+    smart_object_chain = target.get("smart_object_chain", [])
+
+    if smart_object_chain:
+        smart_layer, error = resolve_native_layer_target(psd, smart_object_chain[0])
+        if smart_layer is None:
+            raise ValueError(error or "Could not resolve smart object chain target.")
+        old_text = replace_text_in_embedded_smart_object(smart_layer, target, value, smart_object_chain[1:])
+    else:
+        layer, error = resolve_native_layer_target(psd, target)
+        if layer is None:
+            raise ValueError(error or "Could not resolve target layer.")
+        if str(getattr(layer, "kind", "")).lower() == "type":
+            old_text = replace_type_layer_text(layer, value)
+        elif str(getattr(layer, "kind", "")).lower() == "smartobject":
+            old_text = replace_text_in_embedded_smart_object(layer, target, value, [])
+        else:
+            raise ValueError("replace_text target must be a type layer or embedded PSD/PSB smart object.")
+
+    psd._mark_updated()
+    return f"Changed text from {old_text!r} to {str(value)!r}. Cached Photoshop previews may be stale until Photoshop refreshes the document."
+
+
+def adjustment_patch_tag(layer, operation):
+    requested = normalize_prototype_key(operation.get("adjustment", ""))
+    tags = native_prototype_adjustment_tags(layer)
+    if requested in ADJUSTMENT_PATCH_TAGS and ADJUSTMENT_PATCH_TAGS[requested] in tags:
+        return ADJUSTMENT_PATCH_TAGS[requested]
+    for tag_name in tags:
+        if normalize_prototype_key(tag_name) == requested:
+            return tag_name
+    if len(tags) == 1:
+        return tags[0]
+    return None
+
+
+def set_adjustment_operation(layer, operation):
+    tag_name = adjustment_patch_tag(layer, operation)
+    if tag_name is None:
+        raise ValueError("Could not resolve a supported native adjustment tag on the target layer.")
+
+    value = operation.get("value", {})
+    if not isinstance(value, dict):
+        raise ValueError("set_adjustment value must be an object.")
+
+    if tag_name == "CURVES":
+        changed = patch_native_layer_tags(layer, {"adjustments": {tag_name: value}})
+    else:
+        raw_value = value.get("raw", value)
+        changed = patch_native_layer_tags(layer, {"adjustments": {tag_name: raw_value}})
+
+    if not changed:
+        raise ValueError("No adjustment values were changed.")
+    return f"Updated {tag_name} adjustment."
+
+
+def set_effect_operation(layer, operation):
+    value = operation.get("value", {})
+    if not isinstance(value, dict):
+        raise ValueError("set_effect value must be an object.")
+
+    effect_descriptors = serialize_layer_tags(layer).get("effect_descriptors", {})
+    if not effect_descriptors:
+        raise ValueError("Target layer has no editable effect descriptor block.")
+
+    if "raw_descriptors" in value and isinstance(value["raw_descriptors"], dict):
+        changed = patch_native_layer_tags(layer, {"effect_descriptors": value["raw_descriptors"]})
+    else:
+        changed = patch_native_layer_tags(layer, {"effect_descriptors": value})
+
+    if not changed:
+        raise ValueError(
+            "No effect descriptor values were changed. Semantic effect patching is not implemented yet; pass raw_descriptors copied from the snapshot."
+        )
+    return "Updated native effect descriptor values."
+
+
+def create_group_operation(psd, operation):
+    parent_target = operation.get("parent")
+    parent = psd
+    if isinstance(parent_target, dict) and parent_target:
+        parent_layer, error = resolve_native_layer_target(psd, parent_target)
+        if parent_layer is None:
+            raise ValueError(error or "Could not resolve group parent.")
+        if not parent_layer.is_group():
+            raise ValueError("create_group parent must be a group layer or omitted for document root.")
+        parent = parent_layer
+
+    name = str(operation.get("name") or "Group")
+    group = psd_layers.Group.new(parent=parent, name=name, open_folder=True)
+    assign_native_layer_id(group, max_native_layer_id(psd) + 1)
+    psd._mark_updated()
+    return f"Created group {name!r}."
+
+
+def apply_native_patch_operation(psd, operation):
+    op_name = operation.get("op")
+    if op_name not in SUPPORTED_NATIVE_PATCH_OPERATIONS:
+        raise ValueError(f"Unsupported native patch operation: {op_name}")
+
+    if op_name == "create_group":
+        return create_group_operation(psd, operation)
+    if op_name == "replace_text":
+        return replace_text_operation(psd, operation)
+
+    target = operation.get("target", {})
+    layer, error = resolve_native_layer_target(psd, target)
+    if layer is None:
+        raise ValueError(error or "Could not resolve target layer.")
+
+    if op_name == "rename_layer":
+        value = str(operation.get("value", "Layer"))
+        old = getattr(layer, "name", "")
+        layer.name = value
+        psd._mark_updated()
+        return f"Renamed layer from {old!r} to {value!r}."
+    if op_name == "set_visibility":
+        layer.visible = bool_from_json(operation.get("value"), getattr(layer, "visible", True))
+        psd._mark_updated()
+        return f"Set visibility to {layer.visible}."
+    if op_name == "set_opacity":
+        layer.opacity = opacity_to_native_value(operation.get("value"), operation.get("unit"))
+        psd._mark_updated()
+        return f"Set opacity to {layer.opacity}."
+    if op_name == "set_fill_opacity":
+        if not hasattr(layer, "fill_opacity"):
+            raise ValueError("Target layer does not support fill_opacity.")
+        layer.fill_opacity = opacity_to_native_value(operation.get("value"), operation.get("unit"))
+        psd._mark_updated()
+        return f"Set fill opacity to {layer.fill_opacity}."
+    if op_name == "set_blend_mode":
+        layer.blend_mode = parse_blend_mode(operation.get("value"))
+        psd._mark_updated()
+        return f"Set blend mode to {operation.get('value')}."
+    if op_name == "set_clipping":
+        if not hasattr(layer, "clipping"):
+            raise ValueError("Target layer does not support clipping.")
+        layer.clipping = bool_from_json(operation.get("value"), getattr(layer, "clipping", False))
+        psd._mark_updated()
+        return f"Set clipping to {layer.clipping}."
+    if op_name == "set_adjustment":
+        message = set_adjustment_operation(layer, operation)
+        psd._mark_updated()
+        return message
+    if op_name == "set_effect":
+        message = set_effect_operation(layer, operation)
+        psd._mark_updated()
+        return message
+
+    raise ValueError(f"Unsupported native patch operation: {op_name}")
+
+
+def validate_native_patch(source_path, patch_json, snapshot_json=None):
+    patch = parse_native_patch_json(patch_json)
+    psd = PSDImage.open(source_path)
+    report = {
+        "schema": NATIVE_PATCH_REPORT_SCHEMA,
+        "valid": True,
+        "applied": [],
+        "skipped": [],
+        "failed": [],
+        "warnings": [],
+    }
+
+    if snapshot_json:
+        try:
+            snapshot = json.loads(snapshot_json)
+            if isinstance(snapshot, dict) and snapshot.get("schema") not in ("psdc.native_snapshot.v1", "psdc.psd_structure.v1"):
+                report["warnings"].append(f"Snapshot schema is {snapshot.get('schema')!r}; expected psdc.native_snapshot.v1.")
+        except Exception as error:
+            report["warnings"].append(f"Could not parse snapshot_json for validation context: {error}")
+
+    for index, operation in enumerate(patch["operations"]):
+        op_name = operation.get("op")
+        if operation.get("_error"):
+            report["failed"].append({"index": index, "op": op_name, "target": operation.get("target"), "message": operation["_error"]})
+            continue
+        if op_name not in SUPPORTED_NATIVE_PATCH_OPERATIONS:
+            report["failed"].append({"index": index, "op": op_name, "target": operation.get("target"), "message": f"Unsupported operation: {op_name}"})
+            continue
+        if op_name == "create_group":
+            report["applied"].append({"index": index, "op": op_name, "target": operation.get("parent"), "message": "Validated create_group operation."})
+            continue
+        try:
+            if op_name == "replace_text":
+                target = operation.get("target", {})
+                chain = target.get("smart_object_chain", []) if isinstance(target, dict) else []
+                if chain:
+                    layer, error = resolve_native_layer_target(psd, chain[0])
+                else:
+                    layer, error = resolve_native_layer_target(psd, target)
+                if layer is None:
+                    raise ValueError(error or "Could not resolve target layer.")
+                if str(getattr(layer, "kind", "")).lower() not in ("type", "smartobject"):
+                    raise ValueError("replace_text target must resolve to a type layer or embedded PSD/PSB smart object.")
+                report["applied"].append({"index": index, "op": op_name, "target": operation.get("target"), "message": "Validated replace_text target."})
+                continue
+
+            layer, error = resolve_native_layer_target(psd, operation.get("target", {}))
+            if layer is None:
+                raise ValueError(error or "Could not resolve target layer.")
+            if op_name == "set_adjustment" and adjustment_patch_tag(layer, operation) is None:
+                raise ValueError("Target layer does not expose a matching adjustment tag.")
+            if op_name == "set_effect" and not serialize_layer_tags(layer).get("effect_descriptors"):
+                raise ValueError("Target layer does not expose effect descriptors.")
+            report["applied"].append({"index": index, "op": op_name, "target": operation.get("target"), "message": "Validated operation."})
+        except Exception as error:
+            report["failed"].append({"index": index, "op": op_name, "target": operation.get("target"), "message": str(error)})
+
+    if report["failed"]:
+        report["valid"] = False
+
+    return patch, report
+
+
+def apply_native_patch_json_to_native_psd(source_path, patch_json, output_path):
+    patch = parse_native_patch_json(patch_json)
+    psd = PSDImage.open(source_path)
+    report = {
+        "schema": NATIVE_PATCH_REPORT_SCHEMA,
+        "applied": [],
+        "skipped": [],
+        "failed": [],
+        "warnings": [],
+    }
+
+    for index, operation in enumerate(patch["operations"]):
+        op_name = operation.get("op")
+        try:
+            message = apply_native_patch_operation(psd, operation)
+            report["applied"].append({"index": index, "op": op_name, "target": operation.get("target", operation.get("parent")), "message": message})
+        except Exception as error:
+            report["failed"].append({"index": index, "op": op_name, "target": operation.get("target", operation.get("parent")), "message": str(error)})
+
+    if report["applied"]:
+        report["warnings"].append("Native metadata was patched. Photoshop may need to refresh cached previews for text, smart objects, adjustments, or effects.")
+
+    psd.save(output_path)
+    report["output_path"] = output_path
+    report["source_path"] = source_path
+    return report
+
+
 def native_prototype_adjustment_tags(layer):
     tags = native_tag_lookup(getattr(layer, "tagged_blocks", {}))
     return [tag_name for tag_name in tags if classify_layer_tag(tag_name) == "adjustments"]
@@ -2953,6 +3824,92 @@ class PSDC_NativePSDStructureJSONDecode:
         return {"ui": {"text": [message]}, "result": (output_path,)}
 
 
+class PSDC_NativePatchValidate:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "source_psd": ("PSD",),
+                "snapshot_json": ("STRING", {"multiline": True, "dynamicPrompts": False}),
+                "patch_json": ("STRING", {"multiline": True, "dynamicPrompts": False}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("normalized_patch_json", "validation_report")
+    FUNCTION = "execute"
+    CATEGORY = "PSDC/Image"
+
+    def execute(self, source_psd, snapshot_json, patch_json):
+        source_path = psd_stack_source_path(source_psd)
+        normalized_patch, report = validate_native_patch(source_path, patch_json, snapshot_json)
+        return (
+            json.dumps(normalized_patch, indent=2, ensure_ascii=False),
+            json.dumps(report, indent=2, ensure_ascii=False),
+        )
+
+
+class PSDC_NativePatchApply:
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "source_psd": ("PSD",),
+                "patch_json": ("STRING", {"multiline": True, "dynamicPrompts": False}),
+                "filename_prefix": ("STRING", {"default": "PSDC_Native_Patch"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING", "STRING")
+    RETURN_NAMES = ("path", "apply_report")
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+    CATEGORY = "PSDC/Image"
+
+    def execute(self, source_psd, patch_json, filename_prefix="PSDC_Native_Patch"):
+        source_path = psd_stack_source_path(source_psd)
+        width = int(source_psd.get("width", 1)) if is_psd_stack(source_psd) else 1
+        height = int(source_psd.get("height", 1)) if is_psd_stack(source_psd) else 1
+
+        full_output_folder, filename, counter, _subfolder, _filename_prefix = folder_paths.get_save_image_path(
+            filename_prefix,
+            self.output_dir,
+            width,
+            height,
+        )
+        file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
+        output_path = os.path.join(full_output_folder, file)
+
+        report = apply_native_patch_json_to_native_psd(source_path, patch_json, output_path)
+        report_text = json.dumps(report, indent=2, ensure_ascii=False)
+        message = f"Saved native patched PSD: {output_path} (applied={len(report['applied'])}, failed={len(report['failed'])})"
+        logging.info("PSDC native patch apply %s", message)
+        return {"ui": {"text": [message, report_text]}, "result": (output_path, report_text)}
+
+
+class PSDC_NativePatchAuthoringPrompt:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {}}
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("prompt",)
+    FUNCTION = "execute"
+    CATEGORY = "PSDC/Image"
+
+    def execute(self):
+        prompt_path = os.path.join(NODE_DIR, "prompts", "psdc-native-json-authoring-prompt.md")
+        try:
+            with open(prompt_path, "r", encoding="utf-8") as handle:
+                prompt = handle.read()
+        except Exception:
+            prompt = "Write only valid PSDC native patch JSON using schema psdc.native_patch.v1."
+        return (prompt,)
+
+
 class PSDC_PreviewPSD:
     def __init__(self):
         self.output_dir = folder_paths.get_temp_directory()
@@ -3275,6 +4232,9 @@ NODE_CLASS_MAPPINGS = {
     "PSDC PSD Structure JSON Decode": PSDC_LegacyPSDStructureJSONDecode,
     "PSDC Native PSD Structure JSON Apply": PSDC_NativePSDStructureJSONApply,
     "PSDC Native PSD Structure JSON Decode": PSDC_NativePSDStructureJSONDecode,
+    "PSDC Native Patch Validate": PSDC_NativePatchValidate,
+    "PSDC Native Patch Apply": PSDC_NativePatchApply,
+    "PSDC Native Patch Authoring Prompt": PSDC_NativePatchAuthoringPrompt,
     "PSDC Preview PSD": PSDC_PreviewPSD,
     "PSDC Save PSD": PSDC_SavePSD,
     "PSDC Extract Alpha": PSDC_ExtractAlpha,
@@ -3293,6 +4253,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PSDC PSD Structure JSON Decode": "PSDC JSON Decoder",
     "PSDC Native PSD Structure JSON Apply": "PSDC Native PSD Structure JSON Apply",
     "PSDC Native PSD Structure JSON Decode": "PSDC Native PSD Structure JSON Decode",
+    "PSDC Native Patch Validate": "PSDC Native Patch Validate",
+    "PSDC Native Patch Apply": "PSDC Native Patch Apply",
+    "PSDC Native Patch Authoring Prompt": "PSDC Native Patch Authoring Prompt",
     "PSDC Preview PSD": "PSDC Preview PSD",
     "PSDC Save PSD": "PSDC Save PSD",
     "PSDC Extract Alpha": "PSDC Extract Alpha",
