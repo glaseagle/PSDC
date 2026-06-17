@@ -200,7 +200,7 @@ Outputs:
 
 - `path`: The saved native PSD path.
 
-Bundled native adjustment prototypes:
+Bundled native prototypes:
 
 - Vibrance
 - Brightness/Contrast
@@ -218,8 +218,15 @@ Bundled native adjustment prototypes:
 - Posterize
 - Threshold
 - Gradient Map
+- Solid Color Fill
+- Drop Shadow
+- Outer Glow
+- Inner Glow
+- Inner Shadow
+- Stroke
+- Bevel/Emboss
 
-The bundled library currently does not include a native editable Solid Color Fill prototype. A plain pixel layer filled with a color is not the same as Photoshop's native Solid Color Fill adjustment/fill layer.
+Effect layers are cloned from editable Photoshop layer-effect prototypes. To edit effect values today, change the matching `effect_descriptors` entry in JSON; the `effects` array is useful for inspection and prototype selection, but the descriptor block is the native source of truth.
 
 JSON object format:
 

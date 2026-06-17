@@ -1104,6 +1104,8 @@ ADJUSTMENT_TAG_TERMS = (
 )
 
 EFFECT_TAG_TERMS = (
+    "OBJECT_BASED_EFFECTS",
+    "EFFECTS_LAYER",
     "EFFECT",
     "STROKE",
     "SHADOW",
@@ -1111,6 +1113,15 @@ EFFECT_TAG_TERMS = (
     "BEVEL",
     "OVERLAY",
 )
+
+EFFECT_CLASS_ALIASES = {
+    "DRSH": ("DrSh", "DropShadow", "drop_shadow", "dropshadow"),
+    "IRSH": ("IrSh", "InnerShadow", "inner_shadow", "innershadow"),
+    "ORGL": ("OrGl", "OuterGlow", "outer_glow", "outerglow"),
+    "IRGL": ("IrGl", "InnerGlow", "inner_glow", "innerglow"),
+    "FRFX": ("FrFX", "Stroke", "stroke"),
+    "EBBL": ("ebbl", "BevelEmboss", "bevel_emboss", "bevelemboss"),
+}
 
 DESCRIPTOR_TAG_TERMS = (
     "TYPE_TOOL",
@@ -2253,6 +2264,48 @@ def native_prototype_adjustment_tags(layer):
     return [tag_name for tag_name in tags if classify_layer_tag(tag_name) == "adjustments"]
 
 
+def normalize_prototype_key(value):
+    text = str(value).strip()
+    return text.lower().replace(" ", "_").replace("-", "_")
+
+
+def effect_aliases_for_key(value):
+    if value is None:
+        return []
+
+    text = str(value)
+    upper = text.upper()
+    aliases = {text, normalize_prototype_key(text)}
+
+    if upper in EFFECT_CLASS_ALIASES:
+        aliases.update(EFFECT_CLASS_ALIASES[upper])
+
+    for class_id, values in EFFECT_CLASS_ALIASES.items():
+        if upper in {str(alias).upper() for alias in values}:
+            aliases.add(class_id)
+            aliases.update(values)
+
+    return list(aliases)
+
+
+def native_layer_effect_keys_from_effects(layer):
+    keys = []
+    try:
+        effects = list(layer.effects)
+    except Exception:
+        return keys
+
+    for effect in effects:
+        keys.append(type(effect).__name__)
+        effect_json = psd_value_to_json(effect)
+        if isinstance(effect_json, dict):
+            class_id = effect_json.get("_classID")
+            if class_id:
+                keys.append(class_id)
+
+    return keys
+
+
 def load_native_prototype_lookup(library_path=None):
     library_path = library_path or NATIVE_PROTOTYPE_LIBRARY
     if not os.path.isfile(library_path):
@@ -2263,8 +2316,15 @@ def load_native_prototype_lookup(library_path=None):
     for layer in library_psd:
         for tag_name in native_prototype_adjustment_tags(layer):
             lookup.setdefault(tag_name, layer)
+            lookup.setdefault(normalize_prototype_key(tag_name), layer)
+        for effect_key in native_layer_effect_keys_from_effects(layer):
+            for alias in effect_aliases_for_key(effect_key):
+                lookup.setdefault(alias, layer)
+                lookup.setdefault(normalize_prototype_key(alias), layer)
         lookup.setdefault(str(getattr(layer, "kind", "")).lower(), layer)
+        lookup.setdefault(normalize_prototype_key(getattr(layer, "kind", "")), layer)
         lookup.setdefault(type(layer).__name__.lower(), layer)
+        lookup.setdefault(normalize_prototype_key(type(layer).__name__), layer)
 
     return lookup
 
@@ -2276,10 +2336,41 @@ def native_layer_info_tag_names(layer_info):
     return [str(tag_name) for tag_name in adjustments.keys()]
 
 
+def native_layer_info_effect_keys(layer_info):
+    effects = layer_info.get("effects")
+    if not isinstance(effects, list):
+        return []
+
+    keys = []
+    for effect in effects:
+        if not isinstance(effect, dict):
+            continue
+        class_id = effect.get("_classID")
+        if class_id:
+            keys.append(class_id)
+        effect_type = effect.get("_type")
+        if effect_type and effect_type != "Descriptor":
+            keys.append(effect_type)
+    return keys
+
+
+def layer_info_has_native_prototype_payload(layer_info):
+    if native_layer_info_tag_names(layer_info):
+        return True
+    if native_layer_info_effect_keys(layer_info):
+        return True
+    effect_descriptors = layer_info.get("effect_descriptors")
+    return isinstance(effect_descriptors, dict) and bool(effect_descriptors)
+
+
 def prototype_key_for_layer_info(layer_info):
     tag_names = native_layer_info_tag_names(layer_info)
     if tag_names:
         return tag_names[0]
+
+    effect_keys = native_layer_info_effect_keys(layer_info)
+    if effect_keys:
+        return effect_keys[0]
 
     kind = str(layer_info.get("kind", "")).lower()
     if kind:
@@ -2317,7 +2408,7 @@ def clone_native_prototype_layer(layer_info, prototype_lookup, layer_id):
 
     prototype = prototype_lookup.get(prototype_key)
     if prototype is None:
-        prototype = prototype_lookup.get(str(prototype_key).lower())
+        prototype = prototype_lookup.get(normalize_prototype_key(prototype_key))
     if prototype is None:
         return None
 
@@ -2363,7 +2454,7 @@ def create_native_psd_from_structure_json(json_text, output_path, source_psd=Non
     skipped_layers = 0
 
     for layer_info in candidate_layers:
-        if not native_layer_info_tag_names(layer_info):
+        if not layer_info_has_native_prototype_payload(layer_info):
             continue
         layer = clone_native_prototype_layer(layer_info, prototype_lookup, next_layer_id)
         if layer is None:
