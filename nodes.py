@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import json
 import logging
@@ -1247,12 +1248,235 @@ def psd_stack_structure_matches_current_layers(psd_stack):
     try:
         width_matches = int(document.get("width")) == int(psd_stack.get("width"))
         height_matches = int(document.get("height")) == int(psd_stack.get("height"))
-        layer_count = document.get("layer_count_top_level", document.get("layer_count"))
+        layer_count = document.get(
+            "decoded_layer_count",
+            document.get("layer_count_top_level", document.get("layer_count")),
+        )
         layer_count_matches = int(layer_count) == len(psd_stack.get("layers", []))
     except (TypeError, ValueError):
         return False
 
     return width_matches and height_matches and layer_count_matches
+
+
+def clamp_int(value, default=0, minimum=None, maximum=None):
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        result = int(default)
+
+    if minimum is not None:
+        result = max(int(minimum), result)
+    if maximum is not None:
+        result = min(int(maximum), result)
+    return result
+
+
+def bool_from_json(value, default=True):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1", "yes", "on"):
+            return True
+        if lowered in ("false", "0", "no", "off"):
+            return False
+    if value is None:
+        return default
+    return bool(value)
+
+
+def structure_layer_name(layer_info, fallback="Layer"):
+    name = layer_info.get("name") if isinstance(layer_info, dict) else None
+    if name is None:
+        return fallback
+    name = str(name).strip()
+    return name if name else fallback
+
+
+def structure_layer_bbox(layer_info, document_width, document_height):
+    bbox = layer_info.get("bbox") if isinstance(layer_info, dict) else None
+    if not isinstance(bbox, dict):
+        return 0, 0, int(document_width), int(document_height)
+
+    left = clamp_int(bbox.get("left"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    top = clamp_int(bbox.get("top"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    right = clamp_int(bbox.get("right"), left + 1, -MAX_RESOLUTION, MAX_RESOLUTION * 2)
+    bottom = clamp_int(bbox.get("bottom"), top + 1, -MAX_RESOLUTION, MAX_RESOLUTION * 2)
+    if right <= left:
+        right = left + 1
+    if bottom <= top:
+        bottom = top + 1
+    return left, top, right, bottom
+
+
+def collect_structure_layers(layers, mode="top_level", group_path=None):
+    if group_path is None:
+        group_path = []
+
+    collected = []
+    if not isinstance(layers, list):
+        return collected
+
+    for index, layer_info in enumerate(layers):
+        if not isinstance(layer_info, dict):
+            continue
+
+        if mode == "top_level":
+            collected.append((layer_info, group_path))
+            continue
+
+        children = layer_info.get("children")
+        if isinstance(children, list) and children:
+            group_name = structure_layer_name(layer_info, f"Group {index + 1}")
+            collected.extend(collect_structure_layers(children, mode, group_path + [group_name]))
+        else:
+            collected.append((layer_info, group_path))
+
+    return collected
+
+
+def document_size_from_structure(structure, selected_layers):
+    document = structure.get("document", {}) if isinstance(structure, dict) else {}
+    width = clamp_int(document.get("width"), 1, 1, MAX_RESOLUTION)
+    height = clamp_int(document.get("height"), 1, 1, MAX_RESOLUTION)
+
+    for layer_info, _group_path in selected_layers:
+        _left, _top, right, bottom = structure_layer_bbox(layer_info, width, height)
+        width = max(width, min(MAX_RESOLUTION, right))
+        height = max(height, min(MAX_RESOLUTION, bottom))
+
+    return int(width), int(height)
+
+
+def source_layer_lookup(source_psd, mode):
+    if not is_psd_stack(source_psd):
+        return {}, {}
+
+    source_layers = source_psd.get("layers", [])
+    by_index_path = {}
+    by_name = {}
+
+    source_structure = source_psd.get("structure", {})
+    source_selected = collect_structure_layers(source_structure.get("layers", []), mode)
+    for index, (layer_info, _group_path) in enumerate(source_selected):
+        if index >= len(source_layers):
+            break
+        index_path = layer_info.get("index_path")
+        if isinstance(index_path, list):
+            by_index_path[tuple(index_path)] = source_layers[index]
+
+    for layer in source_layers:
+        name = layer.get("name")
+        if name and name not in by_name:
+            by_name[name] = layer
+
+    return by_index_path, by_name
+
+
+def clone_source_layer_for_structure(source_layer, layer_info, document_width, document_height, batch_size):
+    layer = dict(source_layer)
+    image = match_batch_size(layer["image"], batch_size)
+    layer["image"] = clone_for_psd(image)
+    if layer.get("mask") is not None:
+        layer["mask"] = clone_for_psd(match_batch_size(layer["mask"], batch_size))
+
+    left, top, _right, _bottom = structure_layer_bbox(layer_info, document_width, document_height)
+    layer_width = int(layer["image"].shape[2])
+    layer_height = int(layer["image"].shape[1])
+    is_full_canvas = layer_width == int(document_width) and layer_height == int(document_height)
+    source_x = list(layer.get("x", [0]))
+    source_y = list(layer.get("y", [0]))
+
+    if not (is_full_canvas and all(int(x) == 0 for x in source_x) and all(int(y) == 0 for y in source_y)):
+        layer["x"] = [int(left)] * batch_size
+        layer["y"] = [int(top)] * batch_size
+    else:
+        layer["x"] = match_position_list(source_x, batch_size)
+        layer["y"] = match_position_list(source_y, batch_size)
+
+    return layer
+
+
+def create_placeholder_layer_for_structure(layer_info, layer_name, document_width, document_height, batch_size):
+    left, top, right, bottom = structure_layer_bbox(layer_info, document_width, document_height)
+    layer_width = max(1, min(MAX_RESOLUTION, right - left))
+    layer_height = max(1, min(MAX_RESOLUTION, bottom - top))
+
+    return {
+        "name": layer_name,
+        "image": torch.zeros((batch_size, layer_height, layer_width, 3), dtype=torch.float32),
+        "mask": torch.zeros((batch_size, layer_height, layer_width), dtype=torch.float32),
+        "x": [int(left)] * batch_size,
+        "y": [int(top)] * batch_size,
+    }
+
+
+def decode_psd_structure_json(json_text, source_psd=None, layer_mode="top_level", batch_size=1):
+    try:
+        structure = json.loads(json_text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Invalid PSD structure JSON: {error}") from error
+
+    if not isinstance(structure, dict):
+        raise ValueError("PSD structure JSON must decode to an object.")
+
+    layers_json = structure.get("layers")
+    selected_layers = collect_structure_layers(layers_json, layer_mode)
+    if not selected_layers:
+        logging.warning("PSDC JSON decoder found no layers; returning an empty PSD stack.")
+
+    if is_psd_stack(source_psd):
+        batch_size = max(int(batch_size), int(source_psd.get("batch_size", 1)))
+    else:
+        batch_size = max(1, int(batch_size))
+
+    document_width, document_height = document_size_from_structure(structure, selected_layers)
+    by_index_path, by_name = source_layer_lookup(source_psd, layer_mode)
+
+    decoded_layers = []
+    for index, (layer_info, group_path) in enumerate(selected_layers):
+        name = structure_layer_name(layer_info, f"Layer {index + 1}")
+        if group_path:
+            name = "/".join(group_path + [name])
+
+        index_path = layer_info.get("index_path")
+        source_layer = None
+        if isinstance(index_path, list):
+            source_layer = by_index_path.get(tuple(index_path))
+        if source_layer is None:
+            source_layer = by_name.get(layer_info.get("name"))
+
+        if source_layer is not None:
+            layer = clone_source_layer_for_structure(source_layer, layer_info, document_width, document_height, batch_size)
+        else:
+            layer = create_placeholder_layer_for_structure(layer_info, name, document_width, document_height, batch_size)
+
+        layer["name"] = name
+        visible = bool_from_json(layer_info.get("visible"), True)
+        opacity = clamp_int(layer_info.get("opacity"), 255, 0, 255)
+        layer["opacity"] = opacity if visible else 0
+        layer["visible"] = visible
+        layer["blend_mode"] = layer_info.get("blend_mode", "normal")
+        layer["structure"] = layer_info
+        decoded_layers.append(layer)
+
+    decoded_structure = copy.deepcopy(structure)
+    decoded_document = decoded_structure.setdefault("document", {})
+    decoded_document["width"] = int(document_width)
+    decoded_document["height"] = int(document_height)
+    decoded_document["decoded_layer_count"] = len(decoded_layers)
+    decoded_document["decoded_layer_mode"] = layer_mode
+
+    return {
+        "type": PSD_STACK_TYPE,
+        "version": 1,
+        "width": int(document_width),
+        "height": int(document_height),
+        "batch_size": int(batch_size),
+        "layers": decoded_layers,
+        "structure": decoded_structure,
+    }
 
 
 def load_psd_file_to_stack(path):
@@ -1465,6 +1689,35 @@ class PSDC_PSDStructureJSON:
 
         indent = 2 if pretty else None
         return (json.dumps(structure, indent=indent, ensure_ascii=False),)
+
+
+class PSDC_PSDStructureJSONDecode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "json_text": ("STRING", {"multiline": True, "dynamicPrompts": False}),
+                "layer_mode": (["top_level", "all_layers"],),
+                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
+            },
+            "optional": {
+                "source_psd": ("PSD",),
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", "PSD")
+    RETURN_NAMES = ("image", "psd")
+    FUNCTION = "execute"
+    CATEGORY = "PSDC/Image"
+
+    def execute(self, json_text, layer_mode="top_level", batch_size=1, source_psd=None):
+        psd = decode_psd_structure_json(
+            json_text,
+            source_psd=source_psd,
+            layer_mode=layer_mode,
+            batch_size=batch_size,
+        )
+        return (flatten_psd_stack(psd), psd)
 
 
 class PSDC_PreviewPSD:
@@ -1688,6 +1941,7 @@ NODE_CLASS_MAPPINGS = {
     "PSDC Image To PSD": PSDC_ImageToPSD,
     "PSDC PSD Layer Combine": PSDC_PSDLayerCombine,
     "PSDC PSD Structure JSON": PSDC_PSDStructureJSON,
+    "PSDC PSD Structure JSON Decode": PSDC_PSDStructureJSONDecode,
     "PSDC Preview PSD": PSDC_PreviewPSD,
     "PSDC Save PSD": PSDC_SavePSD,
     "PSDC Extract Alpha": PSDC_ExtractAlpha,
@@ -1701,6 +1955,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PSDC Image To PSD": "PSDC Image To PSD",
     "PSDC PSD Layer Combine": "PSDC PSD Layer Combine",
     "PSDC PSD Structure JSON": "PSDC PSD Structure JSON",
+    "PSDC PSD Structure JSON Decode": "PSDC PSD Structure JSON Decode",
     "PSDC Preview PSD": "PSDC Preview PSD",
     "PSDC Save PSD": "PSDC Save PSD",
     "PSDC Extract Alpha": "PSDC Extract Alpha",

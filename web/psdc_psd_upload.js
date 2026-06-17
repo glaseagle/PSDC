@@ -11,6 +11,7 @@ const PSDC_NODE_TYPES = new Set([
     "PSDC Image To PSD",
     "PSDC PSD Layer Combine",
     "PSDC PSD Structure JSON",
+    "PSDC PSD Structure JSON Decode",
     "PSDC Preview PSD",
     "PSDC Save PSD",
     "PSDC Extract Alpha",

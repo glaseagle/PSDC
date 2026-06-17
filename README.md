@@ -141,6 +141,24 @@ Outputs:
 
 - `json`: A `STRING` containing the extracted structure.
 
+### PSDC PSD Structure JSON Decode
+
+Builds a PSDC `PSD` stack from JSON produced by `PSDC PSD Structure JSON`.
+
+Inputs:
+
+- `json_text`: The PSD structure JSON text.
+- `layer_mode`: `top_level` recreates the same top-level stack shape used by `PSDC Load PSD`; `all_layers` flattens nested child layers into PSDC layers with group names prefixed.
+- `batch_size`: Batch size used when the JSON is decoded without a `source_psd`.
+- `source_psd`: Optional PSDC stack whose image and mask tensors are reused while the JSON controls layer names, order, opacity, visibility, document size, and retained metadata.
+
+Outputs:
+
+- `image`: The flattened preview of the decoded PSD stack.
+- `psd`: The decoded PSDC layer stack.
+
+JSON does not embed pixel tensors. Without `source_psd`, the decoder creates transparent placeholder layers that preserve the editable structure. `PSDC Save PSD` writes those placeholders as normal Photoshop pixel layers; Photoshop adjustment/effect descriptors remain metadata in the stack JSON because PSDC's saver only writes pixel layers and native pixel masks.
+
 JSON object format:
 
 ```json
