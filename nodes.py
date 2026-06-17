@@ -11,6 +11,7 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw, ImageFont
 from psd_tools import PSDImage
+from psd_tools.constants import BlendMode
 
 try:
     # The v3 node API (and its Autogrow dynamic inputs) only exists on newer
@@ -1660,6 +1661,507 @@ def decode_psd_structure_json(json_text, source_psd=None, layer_mode="top_level"
     }
 
 
+def psd_stack_source_path(psd_stack):
+    if not is_psd_stack(psd_stack):
+        raise ValueError("Native PSD JSON apply requires a PSDC PSD stack from PSDC Load PSD.")
+
+    structure = psd_stack.get("structure")
+    if not isinstance(structure, dict):
+        raise ValueError("PSD stack does not contain source structure metadata.")
+
+    source = structure.get("source")
+    if not isinstance(source, dict):
+        raise ValueError("PSD stack does not contain a native PSD source path.")
+
+    source_path = source.get("path")
+    if source_path and os.path.isfile(source_path):
+        return source_path
+
+    filename = source.get("filename")
+    if filename:
+        try:
+            candidate = folder_paths.get_annotated_filepath(filename)
+        except Exception:
+            candidate = None
+        if candidate and os.path.isfile(candidate):
+            return candidate
+
+    raise ValueError("Could not resolve the original PSD file. Load it with PSDC Load PSD before applying native JSON edits.")
+
+
+def iter_native_psd_layers(container, index_path=()):
+    for index, layer in enumerate(container):
+        current_path = index_path + (index,)
+        yield current_path, layer
+        if layer.is_group():
+            yield from iter_native_psd_layers(layer, current_path)
+
+
+def iter_json_structure_layers(layers):
+    if not isinstance(layers, list):
+        return
+
+    for layer_info in layers:
+        if not isinstance(layer_info, dict):
+            continue
+        yield layer_info
+        children = layer_info.get("children")
+        if isinstance(children, list):
+            yield from iter_json_structure_layers(children)
+
+
+def native_psd_layer_lookup(psd):
+    by_index_path = {}
+    by_id = {}
+    by_name = {}
+
+    for index_path, layer in iter_native_psd_layers(psd):
+        by_index_path[index_path] = layer
+
+        layer_id = layer_id_from_tags(layer)
+        if layer_id is not None and layer_id not in by_id:
+            by_id[layer_id] = layer
+
+        name = getattr(layer, "name", None)
+        if name and name not in by_name:
+            by_name[name] = layer
+
+    return by_index_path, by_id, by_name
+
+
+def find_native_layer_for_json(layer_info, by_index_path, by_id, by_name):
+    layer_id = layer_info.get("id")
+    if layer_id is not None and layer_id in by_id:
+        return by_id[layer_id]
+
+    index_path = layer_info.get("index_path")
+    if isinstance(index_path, list):
+        try:
+            path_key = tuple(int(value) for value in index_path)
+        except (TypeError, ValueError):
+            path_key = None
+        if path_key in by_index_path:
+            return by_index_path[path_key]
+
+    name = layer_info.get("name")
+    if name in by_name:
+        return by_name[name]
+
+    return None
+
+
+def enum_name_or_value(value):
+    if isinstance(value, dict):
+        if "value" in value:
+            return value["value"]
+        if "name" in value:
+            return value["name"]
+    return value
+
+
+def parse_blend_mode(value):
+    value = enum_name_or_value(value)
+    if isinstance(value, bytes):
+        return BlendMode(value)
+    if isinstance(value, PyEnum):
+        return BlendMode(value.value)
+
+    text = str(value).strip()
+    if not text:
+        return BlendMode.NORMAL
+
+    try:
+        return BlendMode(text.encode("ascii"))
+    except Exception:
+        pass
+
+    normalized = text.upper().replace(" ", "_").replace("-", "_")
+    if normalized in BlendMode.__members__:
+        return BlendMode[normalized]
+
+    compact = normalized.replace("_", "")
+    for mode in BlendMode:
+        if mode.name.replace("_", "") == compact:
+            return mode
+
+    raise ValueError(f"Unsupported blend mode: {value}")
+
+
+def parse_enum_like(value, enum_type):
+    if isinstance(value, enum_type):
+        return value
+
+    if isinstance(value, PyEnum):
+        value = value.value
+
+    value = enum_name_or_value(value)
+    if isinstance(value, bytes):
+        return enum_type(value)
+
+    text = str(value).strip()
+    normalized = text.upper().replace(" ", "_").replace("-", "_")
+    if normalized in getattr(enum_type, "__members__", {}):
+        return enum_type[normalized]
+
+    try:
+        return enum_type(text.encode("ascii"))
+    except Exception:
+        return enum_type(text)
+
+
+def coerce_native_value(value, current_value):
+    if isinstance(value, dict) and "value" in value:
+        value = value["value"]
+
+    if isinstance(current_value, bool):
+        return bool_from_json(value, current_value)
+    if isinstance(current_value, int) and not isinstance(current_value, bool):
+        return int(round(float(value)))
+    if isinstance(current_value, float):
+        return float(value)
+    if isinstance(current_value, str):
+        return str(value)
+    if isinstance(current_value, bytes):
+        if isinstance(value, dict):
+            value = value.get("value", value.get("name", ""))
+        if isinstance(value, bytes):
+            return value
+        return str(value).encode("latin-1", errors="replace")
+    if isinstance(current_value, PyEnum):
+        return parse_enum_like(value, type(current_value))
+    return value
+
+
+def patch_native_sequence(current_value, json_value):
+    if not isinstance(json_value, list):
+        return False, current_value
+
+    if isinstance(current_value, tuple):
+        if len(current_value) != len(json_value):
+            return False, current_value
+        updated = tuple(coerce_native_value(value, current_value[index]) for index, value in enumerate(json_value))
+        return updated != current_value, updated
+
+    if isinstance(current_value, list):
+        changed = False
+        for index, item_json in enumerate(json_value[: len(current_value)]):
+            item = current_value[index]
+            if isinstance(item_json, dict) and not isinstance(item, (str, bytes, int, float, bool, tuple, list)):
+                changed = patch_native_object(item, item_json) or changed
+            elif isinstance(item, tuple):
+                item_changed, updated = patch_native_sequence(item, item_json)
+                if item_changed:
+                    current_value[index] = updated
+                    changed = True
+            elif isinstance(item, list):
+                item_changed, updated = patch_native_sequence(item, item_json)
+                if item_changed:
+                    current_value[index] = updated
+                    changed = True
+            else:
+                updated = coerce_native_value(item_json, item)
+                if updated != item:
+                    current_value[index] = updated
+                    changed = True
+        return changed, current_value
+
+    return False, current_value
+
+
+def patch_native_mapping(current_value, json_value):
+    if not (hasattr(current_value, "items") and callable(current_value.items) and isinstance(json_value, dict)):
+        return False
+
+    changed = False
+    key_lookup = {psd_key_to_string(key): key for key in current_value.keys()}
+
+    for json_key, item_json in json_value.items():
+        if str(json_key).startswith("_"):
+            continue
+        if json_key not in key_lookup:
+            continue
+
+        key = key_lookup[json_key]
+        item = current_value[key]
+        if patch_native_object(item, item_json):
+            changed = True
+        elif hasattr(item, "value"):
+            try:
+                updated = coerce_native_value(item_json, item.value)
+            except Exception:
+                continue
+            if updated != item.value:
+                item.value = updated
+                changed = True
+
+    return changed
+
+
+def patch_native_object(current_value, json_value):
+    if not isinstance(json_value, dict):
+        return False
+
+    changed = False
+
+    if hasattr(current_value, "items") and callable(current_value.items):
+        changed = patch_native_mapping(current_value, json_value) or changed
+
+    for attr, item_json in json_value.items():
+        if attr.startswith("_") or attr in ("items",):
+            continue
+        if not hasattr(current_value, attr):
+            continue
+
+        try:
+            existing = getattr(current_value, attr)
+        except Exception:
+            continue
+
+        try:
+            if isinstance(existing, (list, tuple)):
+                item_changed, updated = patch_native_sequence(existing, item_json)
+                if item_changed:
+                    if isinstance(existing, tuple):
+                        setattr(current_value, attr, updated)
+                    changed = True
+                continue
+
+            if isinstance(item_json, dict) and not isinstance(existing, (str, bytes, int, float, bool)):
+                changed = patch_native_object(existing, item_json) or changed
+                continue
+
+            updated = coerce_native_value(item_json, existing)
+            if updated != existing:
+                setattr(current_value, attr, updated)
+                changed = True
+        except Exception:
+            continue
+
+    if hasattr(current_value, "value") and "value" in json_value:
+        try:
+            updated = coerce_native_value(json_value["value"], current_value.value)
+            if updated != current_value.value:
+                current_value.value = updated
+                changed = True
+        except Exception:
+            pass
+
+    return changed
+
+
+def curve_channel_data_from_json(curves_json):
+    is_map = bool_from_json(curves_json.get("is_map"), False)
+    channels = curves_json.get("channels")
+    if not isinstance(channels, list):
+        return None, None, None
+
+    data = []
+    channel_bits = 0
+
+    for default_index, channel in enumerate(channels):
+        if not isinstance(channel, dict):
+            continue
+
+        index = clamp_int(channel.get("index"), default_index, 0, 31)
+        channel_bits |= 1 << index
+
+        if is_map:
+            lookup = channel.get("lookup")
+            if not isinstance(lookup, list) or len(lookup) != 256:
+                continue
+            data.append([clamp_int(value, 0, 0, 255) for value in lookup])
+            continue
+
+        points_json = channel.get("points")
+        if not isinstance(points_json, list):
+            continue
+
+        points = []
+        for point in points_json:
+            if isinstance(point, dict):
+                output = clamp_int(point.get("output"), 0, 0, 65535)
+                input_value = clamp_int(point.get("input"), 0, 0, 65535)
+            elif isinstance(point, (list, tuple)) and len(point) >= 2:
+                output = clamp_int(point[0], 0, 0, 65535)
+                input_value = clamp_int(point[1], 0, 0, 65535)
+            else:
+                continue
+            points.append((output, input_value))
+
+        if len(points) < 2:
+            continue
+        data.append(points[:19])
+
+    if not data:
+        return None, None, None
+
+    return is_map, data, channel_bits
+
+
+def patch_curves_adjustment(curves, curves_json):
+    if not isinstance(curves_json, dict):
+        return False
+
+    is_map, data, channel_bits = curve_channel_data_from_json(curves_json)
+    if data is None:
+        return False
+
+    changed = False
+    version = clamp_int(curves_json.get("version"), getattr(curves, "version", 1), 1, 4)
+    count_map = clamp_int(curves_json.get("count_map"), channel_bits, 0, 2**32 - 1)
+    if version == 1 and bin(count_map).count("1") != len(data):
+        count_map = channel_bits
+    if version != 1 and count_map != len(data):
+        count_map = len(data)
+
+    updates = {
+        "is_map": bool(is_map),
+        "version": int(version),
+        "count_map": int(count_map),
+        "data": data,
+    }
+
+    for attr, value in updates.items():
+        if getattr(curves, attr, None) != value:
+            setattr(curves, attr, value)
+            changed = True
+
+    return changed
+
+
+def native_tag_lookup(tagged_blocks):
+    lookup = {}
+    for tag in tagged_blocks.keys():
+        lookup[layer_tag_name(tag)] = tag
+    return lookup
+
+
+def patch_native_layer_tags(layer, layer_info):
+    tagged_blocks = getattr(layer, "tagged_blocks", None)
+    if not tagged_blocks:
+        return 0
+
+    tags_by_name = native_tag_lookup(tagged_blocks)
+    changed_count = 0
+
+    for category in ("adjustments", "effect_descriptors", "descriptors"):
+        category_updates = layer_info.get(category)
+        if not isinstance(category_updates, dict):
+            continue
+
+        for tag_name, tag_json in category_updates.items():
+            tag = tags_by_name.get(str(tag_name))
+            if tag is None:
+                continue
+
+            try:
+                tag_data = tagged_blocks.get(tag).data
+            except Exception:
+                continue
+
+            try:
+                if psd_value_to_json(tag_data) == tag_json:
+                    continue
+            except Exception:
+                pass
+
+            if str(tag_name) == "CURVES" or type(tag_data).__name__ == "Curves":
+                changed = patch_curves_adjustment(tag_data, tag_json)
+            else:
+                changed = patch_native_object(tag_data, tag_json)
+
+            if changed:
+                changed_count += 1
+
+    return changed_count
+
+
+def patch_native_layer_metadata(layer, layer_info):
+    changed = 0
+
+    if "name" in layer_info:
+        name = structure_layer_name(layer_info, getattr(layer, "name", "Layer"))
+        if getattr(layer, "name", None) != name:
+            layer.name = name
+            changed += 1
+
+    if "visible" in layer_info:
+        visible = bool_from_json(layer_info.get("visible"), getattr(layer, "visible", True))
+        if getattr(layer, "visible", None) != visible:
+            layer.visible = visible
+            changed += 1
+
+    if "opacity" in layer_info:
+        opacity = clamp_int(layer_info.get("opacity"), getattr(layer, "opacity", 255), 0, 255)
+        if getattr(layer, "opacity", None) != opacity:
+            layer.opacity = opacity
+            changed += 1
+
+    if "fill_opacity" in layer_info and hasattr(layer, "fill_opacity"):
+        fill_opacity = clamp_int(layer_info.get("fill_opacity"), getattr(layer, "fill_opacity", 255), 0, 255)
+        if getattr(layer, "fill_opacity", None) != fill_opacity:
+            layer.fill_opacity = fill_opacity
+            changed += 1
+
+    if "blend_mode" in layer_info and hasattr(layer, "blend_mode"):
+        try:
+            blend_mode = parse_blend_mode(layer_info.get("blend_mode"))
+            if getattr(layer, "blend_mode", None) != blend_mode:
+                layer.blend_mode = blend_mode
+                changed += 1
+        except Exception as error:
+            logging.warning("PSDC native JSON apply skipped unsupported blend mode on %s: %s", layer.name, error)
+
+    if "clipping" in layer_info and hasattr(layer, "clipping"):
+        try:
+            clipping = bool_from_json(layer_info.get("clipping"), getattr(layer, "clipping", False))
+            if getattr(layer, "clipping", None) != clipping:
+                layer.clipping = clipping
+                changed += 1
+        except Exception as error:
+            logging.warning("PSDC native JSON apply skipped clipping update on %s: %s", layer.name, error)
+
+    return changed
+
+
+def apply_structure_json_to_native_psd(source_path, json_text, output_path):
+    try:
+        structure = json.loads(json_text)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Invalid PSD structure JSON: {error}") from error
+
+    if not isinstance(structure, dict):
+        raise ValueError("PSD structure JSON must decode to an object.")
+
+    psd = PSDImage.open(source_path)
+    by_index_path, by_id, by_name = native_psd_layer_lookup(psd)
+
+    matched_layers = 0
+    metadata_updates = 0
+    native_tag_updates = 0
+
+    for layer_info in iter_json_structure_layers(structure.get("layers")):
+        layer = find_native_layer_for_json(layer_info, by_index_path, by_id, by_name)
+        if layer is None:
+            continue
+
+        matched_layers += 1
+        metadata_updates += patch_native_layer_metadata(layer, layer_info)
+        native_tag_updates += patch_native_layer_tags(layer, layer_info)
+
+    if metadata_updates or native_tag_updates:
+        psd._mark_updated()
+
+    psd.save(output_path)
+    return {
+        "matched_layers": matched_layers,
+        "metadata_updates": metadata_updates,
+        "native_tag_updates": native_tag_updates,
+        "source_path": source_path,
+        "output_path": output_path,
+    }
+
+
 def load_psd_file_to_stack(path):
     psd = PSDImage.open(path)
     width = int(psd.width)
@@ -1901,6 +2403,51 @@ class PSDC_PSDStructureJSONDecode:
         return (flatten_psd_stack(psd), psd)
 
 
+class PSDC_NativePSDStructureJSONApply:
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "source_psd": ("PSD",),
+                "json_text": ("STRING", {"multiline": True, "dynamicPrompts": False}),
+                "filename_prefix": ("STRING", {"default": "PSDC_Native_JSON"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("path",)
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+    CATEGORY = "PSDC/Image"
+
+    def execute(self, source_psd, json_text, filename_prefix="PSDC_Native_JSON"):
+        source_path = psd_stack_source_path(source_psd)
+        width = int(source_psd.get("width", 1)) if is_psd_stack(source_psd) else 1
+        height = int(source_psd.get("height", 1)) if is_psd_stack(source_psd) else 1
+
+        full_output_folder, filename, counter, _subfolder, _filename_prefix = folder_paths.get_save_image_path(
+            filename_prefix,
+            self.output_dir,
+            width,
+            height,
+        )
+        file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
+        output_path = os.path.join(full_output_folder, file)
+
+        result = apply_structure_json_to_native_psd(source_path, json_text, output_path)
+        message = (
+            f"Saved native PSD: {output_path} "
+            f"(matched_layers={result['matched_layers']}, "
+            f"metadata_updates={result['metadata_updates']}, "
+            f"native_tag_updates={result['native_tag_updates']})"
+        )
+        logging.info("PSDC native JSON apply %s", message)
+        return {"ui": {"text": [message]}, "result": (output_path,)}
+
+
 class PSDC_PreviewPSD:
     def __init__(self):
         self.output_dir = folder_paths.get_temp_directory()
@@ -2123,6 +2670,7 @@ NODE_CLASS_MAPPINGS = {
     "PSDC PSD Layer Combine": PSDC_PSDLayerCombine,
     "PSDC PSD Structure JSON": PSDC_PSDStructureJSON,
     "PSDC PSD Structure JSON Decode": PSDC_PSDStructureJSONDecode,
+    "PSDC Native PSD Structure JSON Apply": PSDC_NativePSDStructureJSONApply,
     "PSDC Preview PSD": PSDC_PreviewPSD,
     "PSDC Save PSD": PSDC_SavePSD,
     "PSDC Extract Alpha": PSDC_ExtractAlpha,
@@ -2137,6 +2685,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PSDC PSD Layer Combine": "PSDC PSD Layer Combine",
     "PSDC PSD Structure JSON": "PSDC PSD Structure JSON",
     "PSDC PSD Structure JSON Decode": "PSDC PSD Structure JSON Decode",
+    "PSDC Native PSD Structure JSON Apply": "PSDC Native PSD Structure JSON Apply",
     "PSDC Preview PSD": "PSDC Preview PSD",
     "PSDC Save PSD": "PSDC Save PSD",
     "PSDC Extract Alpha": "PSDC Extract Alpha",

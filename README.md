@@ -159,6 +159,28 @@ Outputs:
 
 JSON does not embed pixel tensors. Without `source_psd`, the decoder creates transparent placeholder layers that preserve the editable structure. The decoder does rasterize simple JSON-authored text layers that provide `adjustments.type_tool_object` with `text`, `color`, and `alignment`, so LLM-edited title treatments can become visible PSDC pixel layers. `PSDC Save PSD` writes decoded layers as normal Photoshop pixel layers; Photoshop-native adjustment/effect descriptors remain metadata in the stack JSON because PSDC's saver only writes pixel layers and native pixel masks.
 
+### PSDC Native PSD Structure JSON Apply
+
+Applies edited structure JSON back onto the original native PSD loaded by `PSDC Load PSD`, then saves a new PSD. This path preserves existing Photoshop-native adjustment layers, fill layers, groups, masks, effects, smart objects, and descriptors because it patches the source PSD in place instead of rebuilding a PSDC pixel stack.
+
+Inputs:
+
+- `source_psd`: A PSDC `PSD` stack from `PSDC Load PSD`. The node uses the original source path stored in that stack.
+- `json_text`: Edited JSON from `PSDC PSD Structure JSON`.
+- `filename_prefix`: Output filename prefix.
+
+Outputs:
+
+- `path`: The saved native PSD path.
+
+Supported native edits:
+
+- Existing layer `name`, `visible`, `opacity`, `fill_opacity`, `blend_mode`, and `clipping`.
+- Existing `CURVES` adjustment layer points/lookup maps as editable Photoshop Curves data.
+- Existing adjustment/effect/descriptor tagged blocks where the value already exists in the source PSD and can be safely patched as primitive values or nested descriptor values.
+
+The node intentionally does not create brand-new native adjustment/effect layers from JSON. To keep Photoshop editability reliable, create the native layer in the template PSD first, extract JSON, edit the existing layer values, and apply the JSON back to that PSD.
+
 JSON object format:
 
 ```json
