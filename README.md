@@ -228,6 +228,12 @@ Bundled native prototypes:
 
 Effect layers are cloned from editable Photoshop layer-effect prototypes. To edit effect values today, change the matching `effect_descriptors` entry in JSON; the `effects` array is useful for inspection and prototype selection, but the descriptor block is the native source of truth.
 
+LLM authoring prompt:
+
+```text
+prompts/psdc-native-json-authoring-prompt.md
+```
+
 JSON object format:
 
 ```json
