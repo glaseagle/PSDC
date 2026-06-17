@@ -132,7 +132,7 @@ Outputs:
 
 - `psd`: The loaded Photoshop layer stack. The stack also keeps the original file path so `PSDC Save PSD` can preserve the native source while adding new PSDC layers above it, and so native JSON apply can reopen the source PSD.
 
-### PSDC PSD Structure JSON
+### PSDC JSON Encoder
 
 Extracts a JSON text description of a `PSD` stack. Use it directly after `PSDC Load PSD` when you want the original Photoshop layer tree, adjustment/fill descriptors, smart object metadata, and layer effects that `psd-tools` can read. Generated or edited PSDC stacks also work, but they contain the synthetic current layer layout because original Photoshop-only descriptors do not exist in that path.
 
@@ -145,9 +145,9 @@ Outputs:
 
 - `json`: A `STRING` containing the extracted structure.
 
-### PSDC PSD Structure JSON Decode
+### PSDC JSON Decoder
 
-Builds a PSDC `PSD` stack from JSON produced by `PSDC PSD Structure JSON`.
+Builds a PSDC `PSD` stack from JSON produced by `PSDC JSON Encoder`.
 
 Inputs:
 
@@ -170,7 +170,7 @@ Applies edited structure JSON back onto the original native PSD loaded by `PSDC 
 Inputs:
 
 - `source_psd`: A PSDC `PSD` stack from `PSDC Load PSD`. The node uses the original source path stored in that stack.
-- `json_text`: Edited JSON from `PSDC PSD Structure JSON`.
+- `json_text`: Edited JSON from `PSDC JSON Encoder`.
 - `filename_prefix`: Output filename prefix.
 
 Outputs:

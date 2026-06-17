@@ -2782,7 +2782,7 @@ else:
             return (image, combined)
 
 
-class PSDC_PSDStructureJSON:
+class PSDC_JSONEncoder:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -2812,7 +2812,7 @@ class PSDC_PSDStructureJSON:
         return (json.dumps(structure, indent=indent, ensure_ascii=False),)
 
 
-class PSDC_PSDStructureJSONDecode:
+class PSDC_JSONDecoder:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -2839,6 +2839,14 @@ class PSDC_PSDStructureJSONDecode:
             batch_size=batch_size,
         )
         return (flatten_psd_stack(psd), psd)
+
+
+class PSDC_LegacyPSDStructureJSON(PSDC_JSONEncoder):
+    DEPRECATED = True
+
+
+class PSDC_LegacyPSDStructureJSONDecode(PSDC_JSONDecoder):
+    DEPRECATED = True
 
 
 class PSDC_NativePSDStructureJSONApply:
@@ -3261,8 +3269,10 @@ NODE_CLASS_MAPPINGS = {
     "PSD Load": PSDC_LegacyPSDLoad,
     "PSDC Image To PSD": PSDC_ImageToPSD,
     "PSDC PSD Layer Combine": PSDC_PSDLayerCombine,
-    "PSDC PSD Structure JSON": PSDC_PSDStructureJSON,
-    "PSDC PSD Structure JSON Decode": PSDC_PSDStructureJSONDecode,
+    "PSDC JSON Encoder": PSDC_JSONEncoder,
+    "PSDC JSON Decoder": PSDC_JSONDecoder,
+    "PSDC PSD Structure JSON": PSDC_LegacyPSDStructureJSON,
+    "PSDC PSD Structure JSON Decode": PSDC_LegacyPSDStructureJSONDecode,
     "PSDC Native PSD Structure JSON Apply": PSDC_NativePSDStructureJSONApply,
     "PSDC Native PSD Structure JSON Decode": PSDC_NativePSDStructureJSONDecode,
     "PSDC Preview PSD": PSDC_PreviewPSD,
@@ -3277,8 +3287,10 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PSD Load": "PSDC Load PSD",
     "PSDC Image To PSD": "PSDC Image To PSD",
     "PSDC PSD Layer Combine": "PSDC PSD Layer Combine",
-    "PSDC PSD Structure JSON": "PSDC PSD Structure JSON",
-    "PSDC PSD Structure JSON Decode": "PSDC PSD Structure JSON Decode",
+    "PSDC JSON Encoder": "PSDC JSON Encoder",
+    "PSDC JSON Decoder": "PSDC JSON Decoder",
+    "PSDC PSD Structure JSON": "PSDC JSON Encoder",
+    "PSDC PSD Structure JSON Decode": "PSDC JSON Decoder",
     "PSDC Native PSD Structure JSON Apply": "PSDC Native PSD Structure JSON Apply",
     "PSDC Native PSD Structure JSON Decode": "PSDC Native PSD Structure JSON Decode",
     "PSDC Preview PSD": "PSDC Preview PSD",

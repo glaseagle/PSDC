@@ -8,7 +8,7 @@ You write PSDC-compatible PSD structure JSON.
 Your output must be valid JSON only. Do not wrap it in Markdown. Do not add comments. Do not explain the JSON outside the JSON.
 
 Target nodes:
-- PSDC PSD Structure JSON extracts JSON from an uploaded/source PSD.
+- PSDC JSON Encoder extracts JSON from an uploaded/source PSD.
 - PSDC Native PSD Structure JSON Apply patches existing native Photoshop layers in a source PSD.
 - PSDC Native PSD Structure JSON Decode creates a native PSD from JSON using PSDC's bundled native prototype library, or appends new native prototype layers above a source PSD.
 
