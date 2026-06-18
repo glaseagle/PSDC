@@ -1,0 +1,28 @@
+{
+  "schema": "psdc.native_patch.v1",
+  "document": {
+    "width": 1920,
+    "height": 1080
+  },
+  "operations": [
+    {
+      "op": "create_adjustment",
+      "type": "solid_color",
+      "name": "Comfy Text Example Background",
+      "value": {
+        "color": "#101820"
+      }
+    },
+    {
+      "op": "create_text",
+      "name": "Comfy Editable Text",
+      "value": "PSDC TEXT LAYER",
+      "bbox": {
+        "left": 150,
+        "top": 160,
+        "right": 1768,
+        "bottom": 340
+      }
+    }
+  ]
+}
