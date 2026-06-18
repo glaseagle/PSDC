@@ -14,7 +14,8 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 from psd_tools import PSDImage
 from psd_tools.api import layers as psd_layers
-from psd_tools.constants import BlendMode, Tag
+from psd_tools.constants import BlendMode, LinkedLayerType, Tag
+from psd_tools.psd.tagged_blocks import TaggedBlock
 
 try:
     # The v3 node API (and its Autogrow dynamic inputs) only exists on newer
@@ -45,6 +46,177 @@ def file_sha256_head(path, length=1024 * 1024):
     with open(path, "rb") as handle:
         digest.update(handle.read(length))
     return digest.hexdigest()
+
+
+def read_u32(data, offset):
+    if offset < 0 or offset + 4 > len(data):
+        raise ValueError("Offset outside file while reading uint32.")
+    return int.from_bytes(data[offset : offset + 4], "big")
+
+
+def read_u64(data, offset):
+    if offset < 0 or offset + 8 > len(data):
+        raise ValueError("Offset outside file while reading uint64.")
+    return int.from_bytes(data[offset : offset + 8], "big")
+
+
+def write_u32(data, offset, value):
+    if offset < 0 or offset + 4 > len(data):
+        raise ValueError("Offset outside file while writing uint32.")
+    data[offset : offset + 4] = int(value).to_bytes(4, "big")
+
+
+def padded_length(length, padding):
+    if padding <= 1:
+        return int(length)
+    return int(length) + ((int(padding) - (int(length) % int(padding))) % int(padding))
+
+
+def normalize_lnk2_lifd_versions_in_psd(psd):
+    record = getattr(psd, "_record", None)
+    layer_mask_info = getattr(record, "layer_and_mask_information", None)
+    tagged_blocks = getattr(layer_mask_info, "tagged_blocks", None)
+    if not tagged_blocks:
+        return 0
+
+    linked_layers = None
+    try:
+        if Tag.LINKED_LAYER2 in tagged_blocks:
+            linked_layers = tagged_blocks.get_data(Tag.LINKED_LAYER2)
+    except Exception:
+        linked_layers = None
+
+    if linked_layers is None:
+        return 0
+
+    changed = 0
+    for linked_layer in linked_layers:
+        try:
+            if linked_layer.kind == LinkedLayerType.DATA and int(linked_layer.version) == 8:
+                linked_layer.version = 7
+                changed += 1
+        except Exception:
+            continue
+
+    if changed:
+        try:
+            psd._mark_updated()
+        except Exception:
+            pass
+    return changed
+
+
+def psd_tagged_block_length_size(key, psd_version):
+    try:
+        tag = Tag(key)
+    except ValueError:
+        tag = key
+    fmt = TaggedBlock._length_format(tag, int(psd_version))
+    return 8 if fmt == "Q" else 4
+
+
+def patch_lnk2_payload_lifd_versions(data, payload_start, payload_end):
+    patched = 0
+    cursor = int(payload_start)
+    payload_end = int(payload_end)
+
+    while cursor + 8 <= payload_end:
+        record_len = read_u64(data, cursor)
+        record_payload_start = cursor + 8
+        record_payload_end = record_payload_start + record_len
+        if record_payload_end > payload_end:
+            break
+
+        if record_len >= 8 and data[record_payload_start : record_payload_start + 4] == b"liFD":
+            version_offset = record_payload_start + 4
+            if read_u32(data, version_offset) == 8:
+                write_u32(data, version_offset, 7)
+                patched += 1
+
+        cursor = record_payload_start + padded_length(record_len, 4)
+
+    return patched
+
+
+def normalize_lnk2_lifd_versions_in_file(path):
+    path = os.fspath(path)
+    try:
+        data = bytearray(open(path, "rb").read())
+    except OSError:
+        return 0
+
+    if len(data) < 30 or data[0:4] != b"8BPS":
+        return 0
+
+    psd_version = int.from_bytes(data[4:6], "big")
+    if psd_version not in (1, 2):
+        return 0
+
+    try:
+        cursor = 26
+        color_mode_len = read_u32(data, cursor)
+        cursor += 4 + color_mode_len
+        image_resources_len = read_u32(data, cursor)
+        cursor += 4 + image_resources_len
+
+        length_size = 8 if psd_version == 2 else 4
+        layer_mask_len = read_u64(data, cursor) if length_size == 8 else read_u32(data, cursor)
+        cursor += length_size
+        layer_mask_end = cursor + layer_mask_len
+        if layer_mask_len == 0 or layer_mask_end > len(data):
+            return 0
+
+        layer_info_len = read_u64(data, cursor) if length_size == 8 else read_u32(data, cursor)
+        cursor += length_size + layer_info_len
+        if cursor > layer_mask_end:
+            return 0
+
+        global_mask_len = read_u32(data, cursor)
+        cursor += 4 + global_mask_len
+        if cursor > layer_mask_end:
+            return 0
+
+        patched = 0
+        while cursor + 12 <= layer_mask_end:
+            signature = bytes(data[cursor : cursor + 4])
+            if signature not in (b"8BIM", b"8B64"):
+                break
+            key = bytes(data[cursor + 4 : cursor + 8])
+            cursor += 8
+            block_length_size = psd_tagged_block_length_size(key, psd_version)
+            if cursor + block_length_size > layer_mask_end:
+                break
+            block_len = read_u64(data, cursor) if block_length_size == 8 else read_u32(data, cursor)
+            cursor += block_length_size
+            payload_start = cursor
+            payload_end = payload_start + block_len
+            if payload_end > layer_mask_end:
+                break
+            if key == b"lnk2":
+                patched += patch_lnk2_payload_lifd_versions(data, payload_start, payload_end)
+            cursor = payload_start + padded_length(block_len, 4)
+
+        if patched:
+            with open(path, "wb") as handle:
+                handle.write(data)
+        return patched
+    except Exception as error:
+        logging.warning("PSDC could not normalize lnk2 liFD records in %s: %s", path, error)
+        return 0
+
+
+def save_psd_photoshop_safe(psd, path):
+    normalized_before = normalize_lnk2_lifd_versions_in_psd(psd)
+    psd.save(path)
+    normalized_after = normalize_lnk2_lifd_versions_in_file(path)
+    if normalized_before or normalized_after:
+        logging.info(
+            "PSDC normalized lnk2 liFD smart-object record versions for Photoshop compatibility: before_save=%s post_save=%s path=%s",
+            normalized_before,
+            normalized_after,
+            path,
+        )
+    return path
 
 
 def tensor_to_uint8_array(tensor):
@@ -2626,7 +2798,7 @@ def apply_structure_json_to_native_psd(source_path, json_text, output_path):
     psd = PSDImage.open(source_path)
     result = apply_structure_to_native_psd_object(psd, structure)
 
-    psd.save(output_path)
+    save_psd_photoshop_safe(psd, output_path)
     return {
         **{key: value for key, value in result.items() if key != "unmatched_layers"},
         "created_layers": 0,
@@ -3431,7 +3603,7 @@ def apply_native_patch_json_to_native_psd(source_path, patch_json, output_path):
     if report["applied"]:
         report["warnings"].append("Native metadata was patched. Photoshop may need to refresh cached previews for text, smart objects, adjustments, or effects.")
 
-    psd.save(output_path)
+    save_psd_photoshop_safe(psd, output_path)
     report["output_path"] = output_path
     report["source_path"] = source_path
     return report
@@ -3760,7 +3932,7 @@ def create_native_psd_from_structure_json(json_text, output_path, source_psd=Non
     if created_layers or created_groups:
         psd._mark_updated()
 
-    psd.save(output_path)
+    save_psd_photoshop_safe(psd, output_path)
     return {
         "matched_layers": patch_result["matched_layers"],
         "metadata_updates": patch_result["metadata_updates"],
@@ -4224,7 +4396,7 @@ class PSDC_SavePSD:
 
                 filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
                 file = f"{filename_with_batch_num}_{counter:05}_.psd"
-                psd.save(os.path.join(full_output_folder, file))
+                save_psd_photoshop_safe(psd, os.path.join(full_output_folder, file))
                 logging.info("PSD file was successfully saved: %s", file)
 
             else:
@@ -4235,7 +4407,7 @@ class PSDC_SavePSD:
 
                     filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
                     file = f"{filename_with_batch_num}_{counter:05}_{batch_number}.psd"
-                    psd.save(os.path.join(full_output_folder, file))
+                    save_psd_photoshop_safe(psd, os.path.join(full_output_folder, file))
                     logging.info("PSD file %s/%s was successfully saved: %s", batch_number + 1, batch_size, file)
 
         except Exception as error:
@@ -4278,7 +4450,7 @@ class PSDC_SavePSD:
             if file_mode == "single_file":
                 file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
                 psd_image = create_psd_image_from_stack(psd_stack, 0)
-                psd_image.save(os.path.join(full_output_folder, file))
+                save_psd_photoshop_safe(psd_image, os.path.join(full_output_folder, file))
                 logging.info("PSD stack file was successfully saved: %s", file)
 
                 if batch_size > 1:
@@ -4291,7 +4463,7 @@ class PSDC_SavePSD:
                 for batch_number in range(batch_size):
                     file = f"{filename.replace('%batch_num%', str(batch_number))}_{counter:05}_{batch_number}.psd"
                     psd_image = create_psd_image_from_stack(psd_stack, batch_number)
-                    psd_image.save(os.path.join(full_output_folder, file))
+                    save_psd_photoshop_safe(psd_image, os.path.join(full_output_folder, file))
                     logging.info("PSD stack file %s/%s was successfully saved: %s", batch_number + 1, batch_size, file)
 
         except Exception as error:
@@ -4337,7 +4509,7 @@ class PSDC_SavePSD:
             if file_mode == "single_file":
                 file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
                 psd_image = self.create_native_psd_from_source_stack(psd_stack, source_path, 0)
-                psd_image.save(os.path.join(full_output_folder, file))
+                save_psd_photoshop_safe(psd_image, os.path.join(full_output_folder, file))
                 logging.info(
                     "Native PSD source file was saved with %s PSDC overlay layer(s): %s",
                     len(overlay_layers),
@@ -4354,7 +4526,7 @@ class PSDC_SavePSD:
                 for batch_number in range(batch_size):
                     file = f"{filename.replace('%batch_num%', str(batch_number))}_{counter:05}_{batch_number}.psd"
                     psd_image = self.create_native_psd_from_source_stack(psd_stack, source_path, batch_number)
-                    psd_image.save(os.path.join(full_output_folder, file))
+                    save_psd_photoshop_safe(psd_image, os.path.join(full_output_folder, file))
                     logging.info(
                         "Native PSD source file %s/%s was saved with %s PSDC overlay layer(s): %s",
                         batch_number + 1,

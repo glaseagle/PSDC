@@ -88,6 +88,8 @@ When the `psd` input comes from `PSDC Load PSD`, `PSDC Save PSD` preserves that 
 
 Operations that must rasterize or scale the loaded PSD base itself still fall back to the PSDC pixel-stack save path, because `psd-tools` does not expose a safe public API for transforming every native Photoshop layer/effect/adjustment in place.
 
+Native PSD saves normalize global `lnk2` embedded smart-object records for Photoshop compatibility. Some `psd-tools` saves preserve `liFD` records as version 8 while writing a version-7-shaped record body; PSDC downgrades only those global `lnk2/liFD` version fields to 7 so Photoshop can open the exported file without changing embedded PSB payload bytes.
+
 ### PSDC Image Composite PSD
 
 Composites like the Essentials `ImageComposite+` node while also building a parallel non-destructive `PSD` stack. The image inputs are intentionally optional so the node can also convert loose images and masks into the PSD track.
