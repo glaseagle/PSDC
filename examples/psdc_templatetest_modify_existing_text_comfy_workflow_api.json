@@ -1,0 +1,46 @@
+{
+  "prompt": {
+    "1": {
+      "class_type": "PSDC Load PSD",
+      "inputs": {
+        "psd_file": "TempleteTest.psd"
+      }
+    },
+    "2": {
+      "class_type": "PSDC PSD Effector",
+      "inputs": {
+        "edit_json": "{\n  \"schema\": \"psdc.native_patch.v1\",\n  \"operations\": [\n    {\n      \"op\": \"replace_text\",\n      \"target\": {\n        \"path\": [\n          \"TitleTreatment\",\n          \"Title Treatment 100\",\n          \"Title Treatment 100\"\n        ],\n        \"smart_object_chain\": [\n          {\n            \"layer_id\": 35,\n            \"name\": \"Title Treatment 100\",\n            \"filename\": \"Title Treatment 100.psb\",\n            \"filetype\": \"8bpb\",\n            \"kind\": \"data\"\n          }\n        ]\n      },\n      \"value\": \"PSDC EDITED TITLE\"\n    }\n  ]\n}",
+        "filename_prefix": "PSDC_TemplateTest_Modify_Text",
+        "psd": [
+          "1",
+          0
+        ]
+      }
+    }
+  },
+  "patch": {
+    "schema": "psdc.native_patch.v1",
+    "operations": [
+      {
+        "op": "replace_text",
+        "target": {
+          "path": [
+            "TitleTreatment",
+            "Title Treatment 100",
+            "Title Treatment 100"
+          ],
+          "smart_object_chain": [
+            {
+              "layer_id": 35,
+              "name": "Title Treatment 100",
+              "filename": "Title Treatment 100.psb",
+              "filetype": "8bpb",
+              "kind": "data"
+            }
+          ]
+        },
+        "value": "PSDC EDITED TITLE"
+      }
+    ]
+  }
+}

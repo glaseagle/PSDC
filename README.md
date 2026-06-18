@@ -410,9 +410,11 @@ Example native PSD generated through `PSDC PSD Effector`:
 ```text
 examples/psdc_curves_fill_comfy_generated.psd
 examples/psdc_text_layer_comfy_generated.psd
+examples/psdc_templatetest_add_text_comfy_generated.psd
+examples/psdc_templatetest_modify_existing_text_comfy_generated.psd
 ```
 
-The first contains an editable Solid Color Fill layer and an editable Curves adjustment layer. The second contains an editable type layer over a Solid Color Fill background. The patch JSON used to generate each PSD is included next to the PSD.
+The first contains an editable Solid Color Fill layer and an editable Curves adjustment layer. The second contains an editable type layer over a Solid Color Fill background. The TemplateTest examples show adding a new editable text layer to an existing PSD and replacing the embedded title text inside `Title Treatment 100.psb`. The patch/workflow JSON used to generate each PSD is included next to the PSD.
 
 ## Notes and Limits
 

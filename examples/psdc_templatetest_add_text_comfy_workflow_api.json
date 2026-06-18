@@ -1,0 +1,37 @@
+{
+  "prompt": {
+    "1": {
+      "class_type": "PSDC Load PSD",
+      "inputs": {
+        "psd_file": "TempleteTest.psd"
+      }
+    },
+    "2": {
+      "class_type": "PSDC PSD Effector",
+      "inputs": {
+        "edit_json": "{\n  \"schema\": \"psdc.native_patch.v1\",\n  \"operations\": [\n    {\n      \"op\": \"create_text\",\n      \"name\": \"PSDC Added Text Layer\",\n      \"value\": \"ADDED WITH PSDC\",\n      \"bbox\": {\n        \"left\": 240,\n        \"top\": 620,\n        \"right\": 1858,\n        \"bottom\": 780\n      }\n    }\n  ]\n}",
+        "filename_prefix": "PSDC_TemplateTest_Add_Text",
+        "psd": [
+          "1",
+          0
+        ]
+      }
+    }
+  },
+  "patch": {
+    "schema": "psdc.native_patch.v1",
+    "operations": [
+      {
+        "op": "create_text",
+        "name": "PSDC Added Text Layer",
+        "value": "ADDED WITH PSDC",
+        "bbox": {
+          "left": 240,
+          "top": 620,
+          "right": 1858,
+          "bottom": 780
+        }
+      }
+    ]
+  }
+}
