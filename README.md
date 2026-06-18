@@ -174,8 +174,50 @@ Supported patch operations:
 - `set_adjustment`
 - `set_effect`
 - `create_group`
+- `create_adjustment`
+- `create_effect_layer`
 
 Native text replacement supports single-style-run Photoshop type layers and text inside embedded PSD/PSB smart objects. It updates the text descriptor, EngineData text, and EngineData run lengths. Photoshop may still need to refresh stale cached previews after opening the patched file.
+
+Native layer creation uses PSDC's bundled Photoshop prototype library. `create_adjustment` can instantiate editable adjustment/fill layers such as Curves, Levels, Hue/Saturation, Solid Color Fill, Gradient Map, Vibrance, Exposure, and the other bundled prototypes. `create_effect_layer` can instantiate editable effect-bearing pixel layers for Drop Shadow, Inner Shadow, Outer Glow, Inner Glow, Stroke, and Bevel/Emboss. Common semantic fields are supported, and `raw` / `raw_descriptors` can be used for descriptor-level control.
+
+Example Effector patch:
+
+```json
+{
+  "schema": "psdc.native_patch.v1",
+  "operations": [
+    {
+      "op": "create_adjustment",
+      "type": "curves",
+      "name": "AI Contrast Curve",
+      "value": {
+        "channels": [
+          {
+            "channel": "composite",
+            "points": [
+              { "input": 0, "output": 0 },
+              { "input": 128, "output": 150 },
+              { "input": 255, "output": 255 }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "op": "create_effect_layer",
+      "effect": "drop_shadow",
+      "name": "AI Drop Shadow Layer",
+      "value": {
+        "opacity": 55,
+        "distance": 18,
+        "size": 24,
+        "color": "#112233"
+      }
+    }
+  ]
+}
+```
 
 ### PSDC PSD Decoder
 

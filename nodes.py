@@ -1614,6 +1614,8 @@ def serialize_psd_document(psd, source_path=None, include_nested_smart_objects=T
                 "set_adjustment",
                 "set_effect",
                 "create_group",
+                "create_adjustment",
+                "create_effect_layer",
             ],
         },
         "layers": [
@@ -2646,9 +2648,13 @@ SUPPORTED_NATIVE_PATCH_OPERATIONS = {
     "set_adjustment",
     "set_effect",
     "create_group",
+    "create_adjustment",
+    "create_effect_layer",
+    "create_effect",
 }
 
 ADJUSTMENT_PATCH_TAGS = {
+    "vibrance": "VIBRANCE",
     "curves": "CURVES",
     "levels": "LEVELS",
     "hue_saturation": "HUE_SATURATION",
@@ -2657,8 +2663,16 @@ ADJUSTMENT_PATCH_TAGS = {
     "exposure": "EXPOSURE",
     "color_balance": "COLOR_BALANCE",
     "black_and_white": "BLACK_AND_WHITE",
+    "photo_filter": "PHOTO_FILTER",
+    "channel_mixer": "CHANNEL_MIXER",
+    "color_lookup": "COLOR_LOOKUP",
+    "selective_color": "SELECTIVE_COLOR",
+    "invert": "INVERT",
+    "posterize": "POSTERIZE",
+    "threshold": "THRESHOLD",
     "gradient_map": "GRADIENT_MAP",
     "solid_color": "SOLID_COLOR_SHEET_SETTING",
+    "solid_color_fill": "SOLID_COLOR_SHEET_SETTING",
 }
 
 
@@ -2965,6 +2979,294 @@ def set_effect_operation(layer, operation):
     return "Updated native effect descriptor values."
 
 
+def rgb_triplet_from_json(value):
+    red, green, blue = parse_text_color(value, default=(255, 255, 255))
+    return {"Rd": float(red), "Grn": float(green), "Bl": float(blue)}
+
+
+def adjustment_type_to_tag(value):
+    normalized = normalize_prototype_key(value)
+    if normalized in ADJUSTMENT_PATCH_TAGS:
+        return ADJUSTMENT_PATCH_TAGS[normalized]
+    upper = str(value).strip().upper()
+    return upper if upper else None
+
+
+def semantic_adjustment_patch_value(tag_name, value):
+    if value is None:
+        value = {}
+    if not isinstance(value, dict):
+        raise ValueError("Adjustment creation value must be an object.")
+
+    if "raw" in value and isinstance(value["raw"], dict):
+        return value["raw"]
+
+    tag_name = str(tag_name)
+    result = copy.deepcopy(value)
+
+    if tag_name == "SOLID_COLOR_SHEET_SETTING":
+        color = value.get("color", value.get("fill_color"))
+        if color is not None:
+            result.pop("color", None)
+            result.pop("fill_color", None)
+            result["Clr"] = rgb_triplet_from_json(color)
+        return result
+
+    if tag_name == "HUE_SATURATION":
+        master = value.get("master")
+        if isinstance(master, dict):
+            result["master"] = [
+                clamp_int(master.get("hue"), 0, -180, 180),
+                clamp_int(master.get("saturation"), 0, -100, 100),
+                clamp_int(master.get("lightness"), 0, -100, 100),
+            ]
+        if "colorize" in value:
+            result["enable"] = 1 if bool_from_json(value.get("colorize"), False) else 0
+        return result
+
+    return result
+
+
+def create_adjustment_layer_info(operation):
+    adjustment_type = operation.get("type", operation.get("adjustment"))
+    tag_name = adjustment_type_to_tag(adjustment_type)
+    if not tag_name:
+        raise ValueError("create_adjustment requires a type, for example 'curves' or 'solid_color'.")
+
+    value = semantic_adjustment_patch_value(tag_name, operation.get("value", {}))
+    name = str(operation.get("name") or f"PSDC {str(adjustment_type).replace('_', ' ').title()}")
+    return {
+        "id": None,
+        "name": name,
+        "kind": normalize_prototype_key(adjustment_type),
+        "class": "AdjustmentLayer",
+        "visible": bool_from_json(operation.get("visible"), True),
+        "opacity": opacity_to_native_value(operation.get("opacity", 255), operation.get("opacity_unit")),
+        "fill_opacity": opacity_to_native_value(operation.get("fill_opacity", 255), operation.get("fill_opacity_unit")),
+        "blend_mode": operation.get("blend_mode", "norm"),
+        "clipping": bool_from_json(operation.get("clipping"), False),
+        "bbox": {"left": 0, "top": 0, "right": 0, "bottom": 0},
+        "has_mask": False,
+        "has_vector_mask": False,
+        "has_effects": False,
+        "adjustments": {tag_name: value},
+        "effects": [],
+        "effect_descriptors": {},
+        "descriptors": {},
+        "smart_object": None,
+        "children": [],
+    }
+
+
+def effect_class_id(value):
+    aliases = effect_aliases_for_key(value)
+    for alias in aliases:
+        upper = str(alias).upper()
+        if upper in EFFECT_CLASS_ALIASES:
+            return upper
+    for class_id, values in EFFECT_CLASS_ALIASES.items():
+        if str(value).upper() == class_id or normalize_prototype_key(value) in {normalize_prototype_key(alias) for alias in values}:
+            return class_id
+    return str(value).strip()
+
+
+def descriptor_class_matches(descriptor, class_id):
+    if not isinstance(descriptor, dict):
+        return False
+    current = descriptor.get("_classID") or descriptor.get("classID")
+    if current is None:
+        return False
+    current_aliases = {normalize_prototype_key(alias) for alias in effect_aliases_for_key(current)}
+    target_aliases = {normalize_prototype_key(alias) for alias in effect_aliases_for_key(class_id)}
+    return bool(current_aliases & target_aliases)
+
+
+def find_effect_descriptor_json(value, class_id):
+    matches = []
+
+    def walk(item):
+        if isinstance(item, dict):
+            if descriptor_class_matches(item, class_id):
+                matches.append(item)
+            for child in item.values():
+                walk(child)
+        elif isinstance(item, list):
+            for child in item:
+                walk(child)
+
+    walk(value)
+    if not matches:
+        return None
+    for match in matches:
+        if bool_from_json(match.get("enab"), False) or bool_from_json(match.get("present"), False):
+            return match
+    return matches[0]
+
+
+def set_descriptor_unit_value(descriptor, key, value, unit=None):
+    if key not in descriptor:
+        return
+    current = descriptor[key]
+    if isinstance(current, dict) and "value" in current:
+        current["value"] = float(value)
+        if unit is not None and "unit" in current:
+            current["unit"] = unit
+    else:
+        descriptor[key] = value
+
+
+def set_descriptor_color(descriptor, key, value):
+    if key not in descriptor:
+        return
+    current = descriptor[key]
+    rgb = rgb_triplet_from_json(value)
+    if isinstance(current, dict):
+        current.update(rgb)
+    else:
+        descriptor[key] = rgb
+
+
+def apply_semantic_effect_json(effect_descriptors, effect, value):
+    if not isinstance(value, dict):
+        raise ValueError("Effect creation value must be an object.")
+    if "raw_descriptors" in value and isinstance(value["raw_descriptors"], dict):
+        return value["raw_descriptors"]
+
+    effect_info = copy.deepcopy(effect_descriptors)
+    class_id = effect_class_id(effect)
+    descriptor = find_effect_descriptor_json(effect_info, class_id)
+    if descriptor is None:
+        raise ValueError(f"Could not find {effect!r} descriptor in the cloned prototype.")
+
+    if "enabled" in value:
+        enabled = bool_from_json(value.get("enabled"), True)
+    else:
+        enabled = True
+    descriptor["enab"] = enabled
+    descriptor["present"] = enabled
+    descriptor["showInDialog"] = True
+
+    if "opacity" in value:
+        set_descriptor_unit_value(descriptor, "Opct", value["opacity"], "#Prc")
+        set_descriptor_unit_value(descriptor, "hglO", value["opacity"], "#Prc")
+        set_descriptor_unit_value(descriptor, "sdwO", value["opacity"], "#Prc")
+    if "distance" in value:
+        set_descriptor_unit_value(descriptor, "Dstn", value["distance"], "#Pxl")
+    if "size" in value:
+        if "Sz" in descriptor:
+            set_descriptor_unit_value(descriptor, "Sz", value["size"], "#Pxl")
+        else:
+            set_descriptor_unit_value(descriptor, "blur", value["size"], "#Pxl")
+    if "blur" in value:
+        set_descriptor_unit_value(descriptor, "blur", value["blur"], "#Pxl")
+    if "spread" in value:
+        set_descriptor_unit_value(descriptor, "Ckmt", value["spread"], "#Pxl")
+    if "choke" in value:
+        set_descriptor_unit_value(descriptor, "Ckmt", value["choke"], "#Pxl")
+    if "noise" in value:
+        set_descriptor_unit_value(descriptor, "Nose", value["noise"], "#Prc")
+    if "angle" in value:
+        set_descriptor_unit_value(descriptor, "lagl", value["angle"], "#Ang")
+    if "use_global_light" in value and "uglg" in descriptor:
+        descriptor["uglg"] = bool_from_json(value.get("use_global_light"), True)
+    if "color" in value:
+        set_descriptor_color(descriptor, "Clr", value["color"])
+    if "highlight_color" in value:
+        set_descriptor_color(descriptor, "hglC", value["highlight_color"])
+    if "shadow_color" in value:
+        set_descriptor_color(descriptor, "sdwC", value["shadow_color"])
+    if "highlight_opacity" in value:
+        set_descriptor_unit_value(descriptor, "hglO", value["highlight_opacity"], "#Prc")
+    if "shadow_opacity" in value:
+        set_descriptor_unit_value(descriptor, "sdwO", value["shadow_opacity"], "#Prc")
+    if "soften" in value:
+        set_descriptor_unit_value(descriptor, "Sftn", value["soften"], "#Pxl")
+    if "depth" in value:
+        set_descriptor_unit_value(descriptor, "srgR", value["depth"], "#Prc")
+
+    return effect_info
+
+
+def create_effect_layer_info(operation):
+    effect = operation.get("effect", operation.get("type"))
+    if not effect:
+        raise ValueError("create_effect_layer requires an effect, for example 'drop_shadow' or 'stroke'.")
+
+    name = str(operation.get("name") or f"PSDC {str(effect).replace('_', ' ').title()}")
+    class_id = effect_class_id(effect)
+    return {
+        "id": None,
+        "name": name,
+        "kind": "pixel",
+        "class": "PixelLayer",
+        "visible": bool_from_json(operation.get("visible"), True),
+        "opacity": opacity_to_native_value(operation.get("opacity", 255), operation.get("opacity_unit")),
+        "fill_opacity": opacity_to_native_value(operation.get("fill_opacity", 255), operation.get("fill_opacity_unit")),
+        "blend_mode": operation.get("blend_mode", "norm"),
+        "clipping": bool_from_json(operation.get("clipping"), False),
+        "bbox": {"left": 0, "top": 0, "right": 1, "bottom": 1},
+        "has_mask": False,
+        "has_vector_mask": False,
+        "has_effects": True,
+        "adjustments": {},
+        "effects": [{"_type": "Descriptor", "_classID": class_id}],
+        "effect_descriptors": {},
+        "descriptors": {},
+        "smart_object": None,
+        "children": [],
+    }
+
+
+def resolve_create_parent(psd, operation):
+    parent_target = operation.get("parent")
+    if not isinstance(parent_target, dict) or not parent_target:
+        return psd
+
+    parent_layer, error = resolve_native_layer_target(psd, parent_target)
+    if parent_layer is None:
+        raise ValueError(error or "Could not resolve parent.")
+    if not parent_layer.is_group():
+        raise ValueError("Parent must be a group layer or omitted for document root.")
+    return parent_layer
+
+
+def insert_created_layer(parent, layer, operation):
+    position = operation.get("position") if isinstance(operation.get("position"), dict) else {}
+    if bool_from_json(position.get("bottom"), False):
+        parent.insert(0, layer)
+    else:
+        parent.append(layer)
+
+
+def create_adjustment_operation(psd, operation):
+    parent = resolve_create_parent(psd, operation)
+    layer_info = create_adjustment_layer_info(operation)
+    layer = clone_native_prototype_layer(layer_info, load_native_prototype_lookup(), allocate_native_layer_id(psd))
+    if layer is None:
+        raise ValueError(f"No native prototype found for adjustment type {operation.get('type', operation.get('adjustment'))!r}.")
+    insert_created_layer(parent, layer, operation)
+    psd._mark_updated()
+    return f"Created native adjustment layer {layer_info['name']!r}."
+
+
+def create_effect_layer_operation(psd, operation):
+    parent = resolve_create_parent(psd, operation)
+    layer_info = create_effect_layer_info(operation)
+    layer = clone_native_prototype_layer(layer_info, load_native_prototype_lookup(), allocate_native_layer_id(psd))
+    if layer is None:
+        raise ValueError(f"No native prototype found for effect {operation.get('effect', operation.get('type'))!r}.")
+
+    value = operation.get("value", {})
+    if isinstance(value, dict) and value:
+        current_descriptors = serialize_layer_tags(layer).get("effect_descriptors", {})
+        patched_descriptors = apply_semantic_effect_json(current_descriptors, operation.get("effect", operation.get("type")), value)
+        patch_native_layer_tags(layer, {"effect_descriptors": patched_descriptors})
+
+    insert_created_layer(parent, layer, operation)
+    psd._mark_updated()
+    return f"Created native effect layer {layer_info['name']!r}."
+
+
 def create_group_operation(psd, operation):
     parent_target = operation.get("parent")
     parent = psd
@@ -2978,7 +3280,7 @@ def create_group_operation(psd, operation):
 
     name = str(operation.get("name") or "Group")
     group = psd_layers.Group.new(parent=parent, name=name, open_folder=True)
-    assign_native_layer_id(group, max_native_layer_id(psd) + 1)
+    assign_native_layer_id(group, allocate_native_layer_id(psd))
     psd._mark_updated()
     return f"Created group {name!r}."
 
@@ -2990,6 +3292,10 @@ def apply_native_patch_operation(psd, operation):
 
     if op_name == "create_group":
         return create_group_operation(psd, operation)
+    if op_name == "create_adjustment":
+        return create_adjustment_operation(psd, operation)
+    if op_name in ("create_effect_layer", "create_effect"):
+        return create_effect_layer_operation(psd, operation)
     if op_name == "replace_text":
         return replace_text_operation(psd, operation)
 
@@ -3068,8 +3374,8 @@ def validate_native_patch(source_path, patch_json, snapshot_json=None):
         if op_name not in SUPPORTED_NATIVE_PATCH_OPERATIONS:
             report["failed"].append({"index": index, "op": op_name, "target": operation.get("target"), "message": f"Unsupported operation: {op_name}"})
             continue
-        if op_name == "create_group":
-            report["applied"].append({"index": index, "op": op_name, "target": operation.get("parent"), "message": "Validated create_group operation."})
+        if op_name in ("create_group", "create_adjustment", "create_effect_layer", "create_effect"):
+            report["applied"].append({"index": index, "op": op_name, "target": operation.get("parent"), "message": f"Validated {op_name} operation."})
             continue
         try:
             if op_name == "replace_text":
@@ -3271,6 +3577,14 @@ def assign_native_layer_id(layer, layer_id):
         layer.tagged_blocks.set_data(Tag.LAYER_ID, int(layer_id))
     except Exception:
         pass
+
+
+def allocate_native_layer_id(psd):
+    next_layer_id = getattr(psd, "_psdc_next_layer_id", None)
+    if next_layer_id is None:
+        next_layer_id = max_native_layer_id(psd) + 1
+    setattr(psd, "_psdc_next_layer_id", int(next_layer_id) + 1)
+    return int(next_layer_id)
 
 
 def json_layer_identity(layer_info):

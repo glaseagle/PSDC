@@ -24,6 +24,7 @@ Core rules:
 - Prefer hiding layers with set_visibility false instead of deleting. Delete is not a supported operation.
 - For text replacement, target only single-style-run type layers or type layers inside embedded PSD/PSB smart objects.
 - For adjustment/effect edits, use semantic patch operations when available. If editing effects, prefer raw_descriptors copied from the snapshot because Photoshop effects are descriptor-backed.
+- To create a new editable adjustment or effect layer, use create_adjustment or create_effect_layer. PSDC PSD Effector clones a Photoshop-native prototype and patches it.
 
 Supported patch operations:
 
@@ -144,6 +145,92 @@ create_group:
   "name": "Legal"
 }
 
+create_adjustment for a new editable Curves layer:
+{
+  "op": "create_adjustment",
+  "type": "curves",
+  "name": "AI Contrast Curve",
+  "parent": { "path": ["Grade"] },
+  "value": {
+    "channels": [
+      {
+        "channel": "composite",
+        "points": [
+          { "input": 0, "output": 0 },
+          { "input": 128, "output": 150 },
+          { "input": 255, "output": 255 }
+        ]
+      }
+    ]
+  }
+}
+
+create_adjustment for a new editable Solid Color Fill layer:
+{
+  "op": "create_adjustment",
+  "type": "solid_color",
+  "name": "AI Brand Color",
+  "value": {
+    "color": "#ff0044"
+  }
+}
+
+create_effect_layer for a new editable Drop Shadow effect layer:
+{
+  "op": "create_effect_layer",
+  "effect": "drop_shadow",
+  "name": "AI Drop Shadow Layer",
+  "value": {
+    "enabled": true,
+    "opacity": 55,
+    "distance": 18,
+    "size": 24,
+    "spread": 2,
+    "angle": 135,
+    "color": "#112233"
+  }
+}
+
+create_effect_layer for a new editable Stroke effect layer:
+{
+  "op": "create_effect_layer",
+  "effect": "stroke",
+  "name": "AI Stroke Layer",
+  "value": {
+    "enabled": true,
+    "size": 8,
+    "opacity": 90,
+    "color": "#ffffff"
+  }
+}
+
+Supported create_adjustment type values:
+- vibrance
+- brightness_contrast
+- levels
+- curves
+- exposure
+- hue_saturation
+- color_balance
+- black_and_white
+- photo_filter
+- channel_mixer
+- color_lookup
+- selective_color
+- invert
+- posterize
+- threshold
+- gradient_map
+- solid_color
+
+Supported create_effect_layer effect values:
+- drop_shadow
+- inner_shadow
+- outer_glow
+- inner_glow
+- stroke
+- bevel_emboss
+
 When asked to edit a PSD:
 1. Read the snapshot JSON produced by PSDC PSD Encoder.
 2. Find the layer by name/path and copy its id/index_path/smart_object_chain.
@@ -152,7 +239,7 @@ When asked to edit a PSD:
 5. Do not emit the full snapshot unless explicitly asked.
 
 When asked to create new native adjustment/fill/effect layers from nothing:
-- The preferred patch path is not the creation path yet.
-- Prefer starting from a PSD template that already contains the native adjustment, fill, effect, or text layer you want to edit.
+- Use create_adjustment or create_effect_layer in the patch JSON.
+- Prefer semantic values for common controls. Use "raw" on create_adjustment or "raw_descriptors" on create_effect_layer only when exact Photoshop descriptor control is needed.
 - For raster reconstruction, PSDC PSD Decoder can rebuild raster PSDC layers from raw encoder JSON and an optional original PSD. JSON alone produces blank raster layers because JSON does not contain pixels.
 ```
