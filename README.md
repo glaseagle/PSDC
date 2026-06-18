@@ -80,7 +80,7 @@ Inputs:
 - `file_mode`: `single_file` writes a batch as layers in one PSD; `multi_file` writes one PSD per image.
 - `alpha_name`: Kept for workflow compatibility. This fork writes native masks, so it does not create separate alpha layers.
 - `alpha_name_mode`: Kept for workflow compatibility.
-- `psd`: Optional `PSD` stack from `PSDC Image Composite PSD`. When connected, this takes priority over the legacy RGBA-image save path.
+- `psd`: Optional `PSD` stack from `PSDC Image Composite PSD`. When connected, this takes priority over the direct RGBA-image save path.
 
 Native masks are created when the incoming image has an alpha channel. The easiest way to produce that is with `PSDC Apply Alpha Channel`.
 
@@ -114,8 +114,6 @@ Outputs:
 
 Loads a Photoshop `.psd` file from the ComfyUI `input` directory and converts it into a `PSD` stack for the rest of the pipeline.
 
-Older workflows that contain `PSD Load` still load; the node now displays as `PSDC Load PSD`.
-
 Inputs:
 
 - `psd_file`: Dropdown of `.psd` files in your ComfyUI `input` folder. Each top-level Photoshop layer becomes a layer in the `PSD` stack, with its mask and position preserved.
@@ -130,11 +128,11 @@ Upload behavior:
 
 Outputs:
 
-- `psd`: The loaded Photoshop layer stack. The stack also keeps the original file path so `PSDC Save PSD` can preserve the native source while adding new PSDC layers above it, and so native JSON apply can reopen the source PSD.
+- `psd`: The loaded Photoshop layer stack. The stack also keeps the original file path so `PSDC Save PSD` can preserve the native source while adding new PSDC layers above it, and so `PSDC PSD Effector` can reopen the source PSD.
 
-### PSDC JSON Encoder
+### PSDC PSD Encoder
 
-Extracts a JSON text description of a `PSD` stack. Use it directly after `PSDC Load PSD` when you want the original Photoshop layer tree, adjustment/fill descriptors, smart object metadata, embedded PSD/PSB text layers, and layer effects that `psd-tools` can read. Generated or edited PSDC stacks also work, but they contain the synthetic current layer layout because original Photoshop-only descriptors do not exist in that path.
+Turns a connected `PSD` into JSON for an LLM to understand. Use it directly after `PSDC Load PSD`.
 
 Inputs:
 
@@ -143,64 +141,26 @@ Inputs:
 
 Outputs:
 
-- `json`: A `STRING` containing the extracted structure.
+- `json`: A `STRING` containing the PSD snapshot.
 
-Loaded native PSDs now emit `psdc.native_snapshot.v1` JSON. It keeps the legacy fields used by `PSDC JSON Decoder`, while also adding `common`, `editable`, `raw_refs`, `path`, `parent_id`, `smart_object_chain`, and `supported_operations` fields for safer LLM targeting.
+Loaded native PSDs emit `psdc.native_snapshot.v1` JSON. The snapshot includes the Photoshop layer tree, layer paths, IDs, groups, visibility, opacity, blend modes, masks/effects/adjustment descriptors where readable, smart object metadata, embedded PSD/PSB text layers, and per-layer `supported_operations` for LLM-safe editing.
 
-### PSDC JSON Decoder
+### PSDC PSD Effector
 
-Builds a PSDC `PSD` stack from JSON produced by `PSDC JSON Encoder`.
-
-Inputs:
-
-- `json_text`: The PSD structure JSON text.
-- `layer_mode`: `top_level` recreates the same top-level stack shape used by `PSDC Load PSD`; `all_layers` flattens nested child layers into PSDC layers with group names prefixed.
-- `batch_size`: Batch size used when the JSON is decoded without a `source_psd`.
-- `source_psd`: Optional PSDC stack whose image and mask tensors are reused while the JSON controls layer names, order, opacity, visibility, document size, and retained metadata.
-
-Outputs:
-
-- `image`: The flattened preview of the decoded PSD stack.
-- `psd`: The decoded PSDC layer stack.
-
-JSON does not embed pixel tensors. Without `source_psd`, the decoder creates transparent placeholder layers that preserve the editable structure. The decoder does rasterize simple JSON-authored text layers that provide `adjustments.type_tool_object` with `text`, `color`, and `alignment`, so LLM-edited title treatments can become visible PSDC pixel layers. `PSDC Save PSD` writes decoded layers as normal Photoshop pixel layers; Photoshop-native adjustment/effect descriptors remain metadata in the stack JSON because PSDC's saver only writes pixel layers and native pixel masks.
-
-### PSDC Native PSD Structure JSON Apply
-
-Applies edited structure JSON back onto the original native PSD loaded by `PSDC Load PSD`, then saves a new PSD. This path preserves existing Photoshop-native adjustment layers, fill layers, groups, masks, effects, smart objects, and descriptors because it patches the source PSD in place instead of rebuilding a PSDC pixel stack.
+Takes the original `PSD` plus LLM edit JSON and writes a new native PSD.
 
 Inputs:
 
-- `source_psd`: A PSDC `PSD` stack from `PSDC Load PSD`. The node uses the original source path stored in that stack.
-- `json_text`: Edited JSON from `PSDC JSON Encoder`.
+- `psd`: The original PSDC `PSD` stack from `PSDC Load PSD`.
+- `edit_json`: LLM output describing the edits.
 - `filename_prefix`: Output filename prefix.
 
 Outputs:
 
-- `path`: The saved native PSD path.
+- `path`: The saved PSD path.
+- `report`: JSON report of applied and failed edits.
 
-Supported native edits:
-
-- Existing layer `name`, `visible`, `opacity`, `fill_opacity`, `blend_mode`, and `clipping`.
-- Existing `CURVES` adjustment layer points/lookup maps as editable Photoshop Curves data.
-- Existing adjustment/effect/descriptor tagged blocks where the value already exists in the source PSD and can be safely patched as primitive values or nested descriptor values.
-
-The node intentionally does not create brand-new native adjustment/effect layers from JSON. To keep Photoshop editability reliable, create the native layer in the template PSD first, extract JSON, edit the existing layer values, and apply the JSON back to that PSD.
-
-### PSDC Native Patch Validate
-
-Validates a small `psdc.native_patch.v1` operation list against a loaded source PSD before saving anything.
-
-Inputs:
-
-- `source_psd`: A PSDC `PSD` stack from `PSDC Load PSD`.
-- `snapshot_json`: Snapshot JSON from `PSDC JSON Encoder`, used as LLM/editing context.
-- `patch_json`: Patch JSON authored by an LLM or another text node.
-
-Outputs:
-
-- `normalized_patch_json`: The patch normalized to PSDC's patch schema.
-- `validation_report`: JSON report containing validated and failed operations.
+Preferred LLM output is a small `psdc.native_patch.v1` operation list. The effector also accepts a full edited snapshot JSON for compatibility with earlier prompts, but the patch form is safer.
 
 Supported patch operations:
 
@@ -215,146 +175,24 @@ Supported patch operations:
 - `set_effect`
 - `create_group`
 
-### PSDC Native Patch Apply
+Native text replacement supports single-style-run Photoshop type layers and text inside embedded PSD/PSB smart objects. It updates the text descriptor, EngineData text, and EngineData run lengths. Photoshop may still need to refresh stale cached previews after opening the patched file.
 
-Applies a `psdc.native_patch.v1` patch to the original native PSD from `PSDC Load PSD` and saves a new PSD.
+### PSDC PSD Decoder
 
-This is the preferred LLM edit path:
-
-```text
-PSD -> PSDC JSON Encoder -> LLM patch JSON -> PSDC Native Patch Validate -> PSDC Native Patch Apply -> PSD
-```
-
-Patch apply preserves untouched native Photoshop data. The initial native text implementation supports single-style-run type layers and text inside embedded PSD/PSB smart objects, including the `Title Treatment 100.psb` style of template layer. It updates the text descriptor, EngineData text, and EngineData run lengths. Photoshop may still need to refresh stale cached previews after opening the patched file.
-
-Curves adjustments can be patched semantically through `set_adjustment`. Other adjustment/fill/effect layers remain descriptor-backed; copy compatible raw descriptor values from the snapshot when using `set_effect`.
-
-### PSDC Native Patch Authoring Prompt
-
-Outputs the bundled LLM prompt from:
-
-```text
-prompts/psdc-native-json-authoring-prompt.md
-```
-
-Use this prompt when you want the model to read a full snapshot but emit only a small, validated `psdc.native_patch.v1` edit list.
-
-### PSDC Native PSD Structure JSON Decode
-
-Creates a native PSD from structure JSON using the bundled Photoshop-native adjustment prototype library. This is the path for AI-authored JSON that needs to create editable adjustment layers from scratch, or add new editable adjustment layers above an uploaded PSD.
+Turns raw encoder JSON back into a PSDC raster stack.
 
 Inputs:
 
-- `json_text`: PSD structure JSON.
-- `filename_prefix`: Output filename prefix.
-- `layer_mode`: `all_layers` creates native prototype layers from nested children as well as top-level layers. `top_level` only uses top-level JSON layers.
-- `source_psd`: Optional PSDC stack from `PSDC Load PSD`. When connected, the source PSD is preserved as the native base, matching layers are patched, and unmatched JSON adjustment/effect/fill layers are cloned from the prototype library. If those unmatched layers are inside an existing JSON group, they are inserted into the matching native source group.
+- `json_text`: Raw JSON from `PSDC PSD Encoder`.
+- `batch_size`: Batch size used when decoding JSON without a connected PSD.
+- `psd`: Optional original PSDC `PSD` stack.
 
 Outputs:
 
-- `path`: The saved native PSD path.
+- `image`: Flattened preview image.
+- `psd`: PSDC raster stack.
 
-Bundled native prototypes:
-
-- Vibrance
-- Brightness/Contrast
-- Levels
-- Curves
-- Exposure
-- Hue/Saturation
-- Color Balance
-- Black & White
-- Photo Filter
-- Channel Mixer
-- Color Lookup
-- Selective Color
-- Invert
-- Posterize
-- Threshold
-- Gradient Map
-- Solid Color Fill
-- Drop Shadow
-- Outer Glow
-- Inner Glow
-- Inner Shadow
-- Stroke
-- Bevel/Emboss
-
-Effect layers are cloned from editable Photoshop layer-effect prototypes. To edit effect values today, change the matching `effect_descriptors` entry in JSON; the `effects` array is useful for inspection and prototype selection, but the descriptor block is the native source of truth.
-
-Group behavior:
-
-- Existing source PSD groups are preserved.
-- New JSON groups with `"kind": "group"` are created as native Photoshop groups.
-- New native prototype layers nested under a new JSON group are created inside that group.
-- New native prototype layers nested under an existing source group are inserted into that matching group.
-- Moving existing native source layers between groups is not implemented yet; preserve existing `id` and `index_path` values when editing source layers.
-
-LLM authoring prompt:
-
-```text
-prompts/psdc-native-json-authoring-prompt.md
-```
-
-JSON object format:
-
-```json
-{
-  "schema": "psdc.psd_structure.v1",
-  "description": "Layer/effect/adjustment metadata extracted from a Photoshop PSD. Pixel tensors are not embedded.",
-  "source": {
-    "path": "C:/path/to/file.psd",
-    "filename": "file.psd"
-  },
-  "document": {
-    "width": 2160,
-    "height": 3840,
-    "layer_count_top_level": 6,
-    "layer_order": "array order follows psd-tools iteration order used by PSDC; children preserve their group nesting."
-  },
-  "layers": [
-    {
-      "index_path": [0],
-      "id": 123,
-      "name": "Curves 1",
-      "kind": "curves",
-      "class": "Curves",
-      "visible": true,
-      "opacity": 255,
-      "fill_opacity": 255,
-      "blend_mode": "norm",
-      "clipping": false,
-      "bbox": { "left": 0, "top": 0, "right": 2160, "bottom": 3840 },
-      "has_mask": false,
-      "has_vector_mask": false,
-      "has_effects": false,
-      "adjustments": {
-        "CURVES": {
-          "_type": "Curves",
-          "channels": [
-            {
-              "index": 0,
-              "channel": "composite",
-              "points": [
-                { "input": 54, "output": 0 },
-                { "input": 100, "output": 111 },
-                { "input": 200, "output": 255 }
-              ]
-            }
-          ]
-        }
-      },
-      "effects": [],
-      "effect_descriptors": {},
-      "descriptors": {},
-      "smart_object": null,
-      "children": []
-    }
-  ]
-}
-```
-
-For LLM edits, target layers by `index_path` or `id`, preserve the `schema`, and only change the relevant metadata fields. `adjustments` contains Photoshop adjustment/fill tagged blocks such as `CURVES` or `GRADIENT_FILL_SETTING`; `effects` contains parsed layer effects when available; `effect_descriptors` contains raw effect tagged blocks; `descriptors` contains non-adjustment Photoshop metadata such as smart object or placed layer descriptors; `children` preserves group nesting.
+With `psd` connected, the decoder reuses the original raster image and mask tensors so the decoded stack matches the source file. Without `psd`, JSON has no pixel data, so the decoder creates blank transparent raster layers that preserve the document size, layer names, order, opacity, visibility, and structure metadata.
 
 ### PSDC Preview PSD
 
@@ -441,7 +279,7 @@ flowchart TB
     S --> P["PSD with background plus editable layers"]
 ```
 
-Legacy RGBA-batch workflow:
+RGBA-batch workflow:
 
 ```mermaid
 flowchart TB

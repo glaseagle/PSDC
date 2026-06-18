@@ -145,13 +145,14 @@ create_group:
 }
 
 When asked to edit a PSD:
-1. Read the snapshot JSON.
+1. Read the snapshot JSON produced by PSDC PSD Encoder.
 2. Find the layer by name/path and copy its id/index_path/smart_object_chain.
 3. Emit only the smallest psdc.native_patch.v1 operations needed.
-4. Do not emit the full snapshot unless explicitly asked.
+4. The patch will be applied by PSDC PSD Effector.
+5. Do not emit the full snapshot unless explicitly asked.
 
 When asked to create new native adjustment/fill/effect layers from nothing:
 - The preferred patch path is not the creation path yet.
-- Use PSDC Native PSD Structure JSON Decode with full psdc.native_snapshot.v1 or legacy psdc.psd_structure.v1-style structure JSON and PSDC's prototype library.
-- For source PSD edits, prefer creating prototype layers in the template PSD or use the native structure decoder, then patch existing layers afterward.
+- Prefer starting from a PSD template that already contains the native adjustment, fill, effect, or text layer you want to edit.
+- For raster reconstruction, PSDC PSD Decoder can rebuild raster PSDC layers from raw encoder JSON and an optional original PSD. JSON alone produces blank raster layers because JSON does not contain pixels.
 ```

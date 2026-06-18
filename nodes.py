@@ -3555,10 +3555,6 @@ class PSDC_PSDLoad:
         return True
 
 
-class PSDC_LegacyPSDLoad(PSDC_PSDLoad):
-    DEPRECATED = True
-
-
 class PSDC_ImageToPSD:
     @classmethod
     def INPUT_TYPES(cls):
@@ -3712,144 +3708,39 @@ class PSDC_JSONDecoder:
         return (flatten_psd_stack(psd), psd)
 
 
-class PSDC_LegacyPSDStructureJSON(PSDC_JSONEncoder):
-    DEPRECATED = True
+class PSDC_PSDEncoder(PSDC_JSONEncoder):
+    CATEGORY = "PSDC/Text"
 
 
-class PSDC_LegacyPSDStructureJSONDecode(PSDC_JSONDecoder):
-    DEPRECATED = True
-
-
-class PSDC_NativePSDStructureJSONApply:
-    def __init__(self):
-        self.output_dir = folder_paths.get_output_directory()
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "source_psd": ("PSD",),
-                "json_text": ("STRING", {"multiline": True, "dynamicPrompts": False}),
-                "filename_prefix": ("STRING", {"default": "PSDC_Native_JSON"}),
-            },
-        }
-
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("path",)
-    FUNCTION = "execute"
-    OUTPUT_NODE = True
-    CATEGORY = "PSDC/Image"
-
-    def execute(self, source_psd, json_text, filename_prefix="PSDC_Native_JSON"):
-        source_path = psd_stack_source_path(source_psd)
-        width = int(source_psd.get("width", 1)) if is_psd_stack(source_psd) else 1
-        height = int(source_psd.get("height", 1)) if is_psd_stack(source_psd) else 1
-
-        full_output_folder, filename, counter, _subfolder, _filename_prefix = folder_paths.get_save_image_path(
-            filename_prefix,
-            self.output_dir,
-            width,
-            height,
-        )
-        file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
-        output_path = os.path.join(full_output_folder, file)
-
-        result = apply_structure_json_to_native_psd(source_path, json_text, output_path)
-        message = (
-            f"Saved native PSD: {output_path} "
-            f"(matched_layers={result['matched_layers']}, "
-            f"metadata_updates={result['metadata_updates']}, "
-            f"native_tag_updates={result['native_tag_updates']})"
-        )
-        logging.info("PSDC native JSON apply %s", message)
-        return {"ui": {"text": [message]}, "result": (output_path,)}
-
-
-class PSDC_NativePSDStructureJSONDecode:
-    def __init__(self):
-        self.output_dir = folder_paths.get_output_directory()
-
+class PSDC_PSDDecoder:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "json_text": ("STRING", {"multiline": True, "dynamicPrompts": False}),
-                "filename_prefix": ("STRING", {"default": "PSDC_Native_JSON_Decode"}),
-                "layer_mode": (["all_layers", "top_level"],),
+                "batch_size": ("INT", {"default": 1, "min": 1, "max": 4096}),
             },
             "optional": {
-                "source_psd": ("PSD",),
+                "psd": ("PSD",),
             },
         }
 
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("path",)
+    RETURN_TYPES = ("IMAGE", "PSD")
+    RETURN_NAMES = ("image", "psd")
     FUNCTION = "execute"
-    OUTPUT_NODE = True
-    CATEGORY = "PSDC/Image"
+    CATEGORY = "PSDC/Text"
 
-    def execute(self, json_text, filename_prefix="PSDC_Native_JSON_Decode", layer_mode="all_layers", source_psd=None):
-        structure = parse_psd_structure_json(json_text)
-        if is_psd_stack(source_psd):
-            width = int(source_psd.get("width", 1))
-            height = int(source_psd.get("height", 1))
-        else:
-            width, height = document_size_from_json_structure(structure)
-
-        full_output_folder, filename, counter, _subfolder, _filename_prefix = folder_paths.get_save_image_path(
-            filename_prefix,
-            self.output_dir,
-            int(width),
-            int(height),
-        )
-        file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
-        output_path = os.path.join(full_output_folder, file)
-
-        result = create_native_psd_from_structure_json(
+    def execute(self, json_text, batch_size=1, psd=None):
+        decoded_psd = decode_psd_structure_json(
             json_text,
-            output_path,
-            source_psd=source_psd,
-            layer_mode=layer_mode,
+            source_psd=psd,
+            layer_mode="top_level",
+            batch_size=batch_size,
         )
-        message = (
-            f"Saved native decoded PSD: {output_path} "
-            f"(matched_layers={result['matched_layers']}, "
-            f"metadata_updates={result['metadata_updates']}, "
-            f"native_tag_updates={result['native_tag_updates']}, "
-            f"created_layers={result['created_layers']}, "
-            f"created_groups={result['created_groups']}, "
-            f"skipped_layers={result['skipped_layers']})"
-        )
-        logging.info("PSDC native JSON decode %s", message)
-        return {"ui": {"text": [message]}, "result": (output_path,)}
+        return (flatten_psd_stack(decoded_psd), decoded_psd)
 
 
-class PSDC_NativePatchValidate:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "source_psd": ("PSD",),
-                "snapshot_json": ("STRING", {"multiline": True, "dynamicPrompts": False}),
-                "patch_json": ("STRING", {"multiline": True, "dynamicPrompts": False}),
-            },
-        }
-
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("normalized_patch_json", "validation_report")
-    FUNCTION = "execute"
-    CATEGORY = "PSDC/Image"
-
-    def execute(self, source_psd, snapshot_json, patch_json):
-        source_path = psd_stack_source_path(source_psd)
-        normalized_patch, report = validate_native_patch(source_path, patch_json, snapshot_json)
-        return (
-            json.dumps(normalized_patch, indent=2, ensure_ascii=False),
-            json.dumps(report, indent=2, ensure_ascii=False),
-        )
-
-
-class PSDC_NativePatchApply:
+class PSDC_PSDEffector:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
 
@@ -3857,22 +3748,22 @@ class PSDC_NativePatchApply:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "source_psd": ("PSD",),
-                "patch_json": ("STRING", {"multiline": True, "dynamicPrompts": False}),
-                "filename_prefix": ("STRING", {"default": "PSDC_Native_Patch"}),
+                "psd": ("PSD",),
+                "edit_json": ("STRING", {"multiline": True, "dynamicPrompts": False}),
+                "filename_prefix": ("STRING", {"default": "PSDC_PSD_Effector"}),
             },
         }
 
     RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("path", "apply_report")
+    RETURN_NAMES = ("path", "report")
     FUNCTION = "execute"
     OUTPUT_NODE = True
-    CATEGORY = "PSDC/Image"
+    CATEGORY = "PSDC/Text"
 
-    def execute(self, source_psd, patch_json, filename_prefix="PSDC_Native_Patch"):
-        source_path = psd_stack_source_path(source_psd)
-        width = int(source_psd.get("width", 1)) if is_psd_stack(source_psd) else 1
-        height = int(source_psd.get("height", 1)) if is_psd_stack(source_psd) else 1
+    def execute(self, psd, edit_json, filename_prefix="PSDC_PSD_Effector"):
+        source_path = psd_stack_source_path(psd)
+        width = int(psd.get("width", 1)) if is_psd_stack(psd) else 1
+        height = int(psd.get("height", 1)) if is_psd_stack(psd) else 1
 
         full_output_folder, filename, counter, _subfolder, _filename_prefix = folder_paths.get_save_image_path(
             filename_prefix,
@@ -3883,31 +3774,32 @@ class PSDC_NativePatchApply:
         file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
         output_path = os.path.join(full_output_folder, file)
 
-        report = apply_native_patch_json_to_native_psd(source_path, patch_json, output_path)
-        report_text = json.dumps(report, indent=2, ensure_ascii=False)
-        message = f"Saved native patched PSD: {output_path} (applied={len(report['applied'])}, failed={len(report['failed'])})"
-        logging.info("PSDC native patch apply %s", message)
-        return {"ui": {"text": [message, report_text]}, "result": (output_path, report_text)}
-
-
-class PSDC_NativePatchAuthoringPrompt:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {"required": {}}
-
-    RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("prompt",)
-    FUNCTION = "execute"
-    CATEGORY = "PSDC/Image"
-
-    def execute(self):
-        prompt_path = os.path.join(NODE_DIR, "prompts", "psdc-native-json-authoring-prompt.md")
         try:
-            with open(prompt_path, "r", encoding="utf-8") as handle:
-                prompt = handle.read()
-        except Exception:
-            prompt = "Write only valid PSDC native patch JSON using schema psdc.native_patch.v1."
-        return (prompt,)
+            edit = json.loads(edit_json)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"Invalid PSDC edit JSON: {error}") from error
+
+        if isinstance(edit, dict) and (edit.get("schema") == NATIVE_PATCH_SCHEMA or isinstance(edit.get("operations"), list)):
+            report = apply_native_patch_json_to_native_psd(source_path, edit_json, output_path)
+            mode = "native_patch"
+            applied = len(report.get("applied", []))
+            failed = len(report.get("failed", []))
+        else:
+            result = apply_structure_json_to_native_psd(source_path, edit_json, output_path)
+            mode = "native_snapshot"
+            applied = int(result.get("metadata_updates", 0)) + int(result.get("native_tag_updates", 0))
+            failed = 0
+            report = {
+                "schema": "psdc.native_snapshot_apply_report.v1",
+                "mode": mode,
+                **result,
+            }
+
+        report["mode"] = mode
+        report_text = json.dumps(report, indent=2, ensure_ascii=False)
+        message = f"Saved effected PSD: {output_path} (mode={mode}, applied={applied}, failed={failed})"
+        logging.info("PSDC PSD Effector %s", message)
+        return {"ui": {"text": [message, report_text]}, "result": (output_path, report_text)}
 
 
 class PSDC_PreviewPSD:
@@ -3992,7 +3884,7 @@ class PSDC_SavePSD:
             try:
                 return self.save_psd_stack(psd, filename_prefix, file_mode)
             except Exception as error:
-                logging.warning("Falling back to legacy image PSD save after PSD stack error: %s", str(error))
+                logging.warning("Falling back to direct image PSD save after PSD stack error: %s", str(error))
 
         if images is None:
             logging.warning("PSDC Save PSD received neither images nor a PSD stack; nothing was saved.")
@@ -4223,18 +4115,11 @@ NODE_CLASS_MAPPINGS = {
     "PSDC Apply Alpha Channel": PSDC_ApplyAlphaChannel,
     "PSDC Image Composite PSD": PSDC_ImageCompositePSD,
     "PSDC Load PSD": PSDC_PSDLoad,
-    "PSD Load": PSDC_LegacyPSDLoad,
     "PSDC Image To PSD": PSDC_ImageToPSD,
     "PSDC PSD Layer Combine": PSDC_PSDLayerCombine,
-    "PSDC JSON Encoder": PSDC_JSONEncoder,
-    "PSDC JSON Decoder": PSDC_JSONDecoder,
-    "PSDC PSD Structure JSON": PSDC_LegacyPSDStructureJSON,
-    "PSDC PSD Structure JSON Decode": PSDC_LegacyPSDStructureJSONDecode,
-    "PSDC Native PSD Structure JSON Apply": PSDC_NativePSDStructureJSONApply,
-    "PSDC Native PSD Structure JSON Decode": PSDC_NativePSDStructureJSONDecode,
-    "PSDC Native Patch Validate": PSDC_NativePatchValidate,
-    "PSDC Native Patch Apply": PSDC_NativePatchApply,
-    "PSDC Native Patch Authoring Prompt": PSDC_NativePatchAuthoringPrompt,
+    "PSDC PSD Encoder": PSDC_PSDEncoder,
+    "PSDC PSD Effector": PSDC_PSDEffector,
+    "PSDC PSD Decoder": PSDC_PSDDecoder,
     "PSDC Preview PSD": PSDC_PreviewPSD,
     "PSDC Save PSD": PSDC_SavePSD,
     "PSDC Extract Alpha": PSDC_ExtractAlpha,
@@ -4244,18 +4129,11 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PSDC Apply Alpha Channel": "PSDC Apply Alpha Channel",
     "PSDC Image Composite PSD": "PSDC Image Composite PSD",
     "PSDC Load PSD": "PSDC Load PSD",
-    "PSD Load": "PSDC Load PSD",
     "PSDC Image To PSD": "PSDC Image To PSD",
     "PSDC PSD Layer Combine": "PSDC PSD Layer Combine",
-    "PSDC JSON Encoder": "PSDC JSON Encoder",
-    "PSDC JSON Decoder": "PSDC JSON Decoder",
-    "PSDC PSD Structure JSON": "PSDC JSON Encoder",
-    "PSDC PSD Structure JSON Decode": "PSDC JSON Decoder",
-    "PSDC Native PSD Structure JSON Apply": "PSDC Native PSD Structure JSON Apply",
-    "PSDC Native PSD Structure JSON Decode": "PSDC Native PSD Structure JSON Decode",
-    "PSDC Native Patch Validate": "PSDC Native Patch Validate",
-    "PSDC Native Patch Apply": "PSDC Native Patch Apply",
-    "PSDC Native Patch Authoring Prompt": "PSDC Native Patch Authoring Prompt",
+    "PSDC PSD Encoder": "PSDC PSD Encoder",
+    "PSDC PSD Effector": "PSDC PSD Effector",
+    "PSDC PSD Decoder": "PSDC PSD Decoder",
     "PSDC Preview PSD": "PSDC Preview PSD",
     "PSDC Save PSD": "PSDC Save PSD",
     "PSDC Extract Alpha": "PSDC Extract Alpha",
