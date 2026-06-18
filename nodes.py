@@ -482,6 +482,17 @@ def psd_overlay_layers(psd_stack):
     return [layer for layer in psd_stack.get("layers", []) if not layer.get("native_source_layer")]
 
 
+def has_native_passthrough(psd_stack):
+    return native_passthrough_source_path(psd_stack) is not None
+
+
+def layer_as_raster_overlay(layer):
+    overlay = dict(layer)
+    overlay.pop("native_source_layer", None)
+    overlay.pop("source_index_path", None)
+    return overlay
+
+
 def match_position_list(positions, batch_size):
     if len(positions) >= batch_size:
         return positions[:batch_size]
@@ -559,7 +570,7 @@ def scale_position_list(positions, batch_size, scale):
     return [int(round(position * scale)) for position in positions]
 
 
-def resize_psd_stack_to_canvas(psd, width, height, batch_size=None):
+def resize_psd_stack_to_canvas(psd, width, height, batch_size=None, preserve_native=True):
     if not is_psd_stack(psd):
         return create_empty_psd_stack(width, height, batch_size or 1)
 
@@ -575,6 +586,13 @@ def resize_psd_stack_to_canvas(psd, width, height, batch_size=None):
 
     if old_width == width and old_height == height:
         return psd
+
+    if preserve_native and has_native_passthrough(psd):
+        resized = copy_psd_stack(psd)
+        resized["width"] = int(width)
+        resized["height"] = int(height)
+        resized["batch_size"] = int(batch_size)
+        return resized
 
     scale = min(width / old_width, height / old_height)
     scale = max(scale, 1.0)
@@ -639,12 +657,13 @@ def composite_target_canvas(base_width, base_height, destination=None, source=No
 
 
 def prepare_psd_stack(psd, width, height, batch_size, destination=None):
-    if not is_psd_stack(psd) or psd.get("width") != width or psd.get("height") != height:
-        if destination is not None:
-            return create_psd_stack_from_destination(destination)
-        return create_empty_psd_stack(width, height, batch_size)
+    if is_psd_stack(psd):
+        return resize_psd_stack_to_canvas(psd, width, height, batch_size, preserve_native=True)
 
-    return match_psd_stack_batch_size(psd, batch_size)
+    if destination is not None:
+        return create_psd_stack_from_destination(destination)
+
+    return create_empty_psd_stack(width, height, batch_size)
 
 
 def append_composite_layer_to_psd(psd, source, mask, x_positions, y_positions, opacity=255):
@@ -4384,11 +4403,32 @@ def combine_psd_stacks(stacks):
     width = max(int(stack["width"]) for stack in stacks)
     height = max(int(stack["height"]) for stack in stacks)
     batch_size = max(int(stack.get("batch_size", 1)) for stack in stacks)
-    combined = create_empty_psd_stack(width, height, batch_size)
+    native_base_index = next((index for index, stack in enumerate(stacks) if has_native_passthrough(stack)), None)
 
-    for stack in stacks:
-        resized_stack = resize_psd_stack_to_canvas(stack, width, height, batch_size)
-        combined["layers"].extend([dict(layer) for layer in resized_stack.get("layers", [])])
+    if native_base_index is None:
+        combined = create_empty_psd_stack(width, height, batch_size)
+        for stack in stacks:
+            resized_stack = resize_psd_stack_to_canvas(stack, width, height, batch_size)
+            combined["layers"].extend([dict(layer) for layer in resized_stack.get("layers", [])])
+    else:
+        combined = copy_psd_stack(
+            resize_psd_stack_to_canvas(stacks[native_base_index], width, height, batch_size, preserve_native=True)
+        )
+        if native_base_index != 0:
+            logging.warning(
+                "PSDC PSD Layer Combine preserved native layer context from input %s. "
+                "Earlier inputs will be saved as raster overlays above that native PSD source.",
+                native_base_index + 1,
+            )
+
+        overlay_layers = []
+        for index, stack in enumerate(stacks):
+            if index == native_base_index:
+                continue
+            resized_stack = resize_psd_stack_to_canvas(stack, width, height, batch_size, preserve_native=False)
+            overlay_layers.extend(layer_as_raster_overlay(layer) for layer in resized_stack.get("layers", []))
+
+        combined["layers"].extend(overlay_layers)
 
     return flatten_psd_stack(combined), combined
 

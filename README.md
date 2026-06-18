@@ -86,7 +86,7 @@ Native masks are created when the incoming image has an alpha channel. The easie
 
 When the `psd` input comes from `PSDC Load PSD`, `PSDC Save PSD` preserves that original PSD as the native base document. If no PSDC layers have been added, the source PSD is copied byte-for-byte. If PSDC image/mask/composite layers have been added above it, the save node reopens the source PSD and appends only those new PSDC layers, keeping the original Photoshop groups, effects, masks, smart objects, fill layers, and adjustment layers intact.
 
-Operations that must rasterize or scale the loaded PSD base itself still fall back to the PSDC pixel-stack save path, because `psd-tools` does not expose a safe public API for transforming every native Photoshop layer/effect/adjustment in place.
+Operations that add image, mask, composite, or combined PSDC layers above a loaded native PSD preserve the native source context. If the canvas must grow, PSDC expands the native document canvas and keeps the original Photoshop layers unscaled so adjustment layers, effects, fill layers, text, masks, groups, and smart objects remain editable.
 
 Native PSD saves normalize global `lnk2` embedded smart-object records for Photoshop compatibility. Some `psd-tools` saves preserve `liFD` records as version 8 while writing a version-7-shaped record body; PSDC downgrades only those global `lnk2/liFD` version fields to 7 so Photoshop can open the exported file without changing embedded PSB payload bytes.
 
@@ -96,7 +96,7 @@ Composites like the Essentials `ImageComposite+` node while also building a para
 
 Use the `IMAGE` output exactly like a normal flat composite. Daisy-chain the `PSD` output into the next `PSDC Image Composite PSD` node's optional `psd` input, then connect the final `PSD` output to `PSDC Save PSD`.
 
-When a connected source, destination, mask, or PSD would exceed the current canvas, PSDC expands to the largest needed canvas before compositing. Existing PSD stack contents are scaled proportionally into the larger canvas so the flat `IMAGE` output and non-destructive `PSD` output stay in parity.
+When a connected source, destination, mask, or PSD would exceed the current canvas, PSDC expands to the largest needed canvas before compositing. Pure raster PSDC stacks are scaled proportionally into the larger canvas. Native-backed PSD stacks preserve the original Photoshop source context and expand the canvas without scaling the native layers.
 
 Inputs:
 
@@ -283,7 +283,7 @@ Outputs:
 - `image`: The flattened combined PSD.
 - `psd`: A combined non-destructive PSD stack.
 
-Layers are added in socket order from bottom to top. If the input PSDs have different canvas sizes, the output uses the largest needed canvas. Smaller PSD stacks are scaled proportionally into that canvas before their layers are added.
+Layers are added in socket order from bottom to top. If the input PSDs have different canvas sizes, the output uses the largest needed canvas. Pure raster PSDC stacks are scaled proportionally into that canvas before their layers are added. If any input carries native Photoshop context from `PSDC Load PSD`, Layer Combine preserves the first native source as the base PSD and adds the other inputs as raster overlay layers above it, so the original non-destructive Photoshop layers survive the later `PSDC Save PSD` step.
 
 On older ComfyUI versions without dynamic socket support, the node falls back to fixed `psd_1` through `psd_8` inputs.
 
