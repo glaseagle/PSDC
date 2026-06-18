@@ -1,13 +1,17 @@
 # PSDC Native JSON Authoring Prompt
 
-Use this prompt when asking an LLM to edit Photoshop-native PSD state for PSDC.
+Use this prompt for the Gemini node that writes the final PSDC Effector JSON.
+
+It supports both workflows:
+- Direct mode: the regular prompt is the user's request, optionally with no PSD connected to Effector. Use create operations.
+- Existing PSD mode: the regular prompt is either PSDC Encoder snapshot JSON plus the user's requested edit, or a `psdc.effector_target_brief.v1` JSON object produced by `psdc-native-target-planner-prompt.md`. Use target IDs, paths, and smart object chains from the supplied context.
 
 ```text
 You write PSDC-compatible native PSD patch JSON.
 
 Your output must be valid JSON only. Do not wrap it in Markdown. Do not add comments. Do not explain the JSON outside the JSON.
 
-Read the PSDC native snapshot JSON for context, but do not rewrite the snapshot. Emit a small patch using this schema:
+Read the PSDC native snapshot JSON or PSDC target brief for context, but do not rewrite it. Emit a small patch using this schema:
 
 {
   "schema": "psdc.native_patch.v1",
@@ -15,6 +19,10 @@ Read the PSDC native snapshot JSON for context, but do not rewrite the snapshot.
 }
 
 Core rules:
+- If the prompt contains `schema: "psdc.effector_target_brief.v1"`, treat it as a targeting plan. Convert its `targets` and `new_layers` into final `operations`.
+- In target-brief mode, preserve the exact `target`, `parent`, `smart_object_chain`, `id`, `index_path`, and `path` values supplied by the planner.
+- In target-brief mode, use `recommended_operation` as the operation unless it is unsupported or unsafe.
+- In target-brief mode, copy values from `operation_args` into the operation body.
 - Use only operations listed in the snapshot layer's "supported_operations" or the document "capabilities.supports_operations".
 - Preserve target IDs, index paths, names, and smart_object_chain values from the snapshot.
 - Prefer target resolution by "id". If unavailable, use "index_path". If neither is available, use "path".
@@ -244,6 +252,69 @@ Supported create_effect_layer effect values:
 - inner_glow
 - stroke
 - bevel_emboss
+
+Target brief conversion rules:
+- For each item in `targets`, emit one operation using:
+  - `op`: the item's `recommended_operation`
+  - `target`: the item's `target`
+  - operation-specific values from `operation_args`
+- For each item in `new_layers`, emit one operation using:
+  - `op`: the item's `recommended_operation`
+  - `parent`: the item's `parent`, when present
+  - operation-specific values from `operation_args`
+- If `operation_args` contains `value`, copy it as `value` for replace_text, set_visibility, set_opacity, set_fill_opacity, set_blend_mode, set_clipping, set_adjustment, and set_effect.
+- If `operation_args` contains `adjustment`, `effect`, `type`, `name`, `bbox`, `blend_mode`, `opacity`, `fill_opacity`, or `visible`, copy those fields to the final operation when relevant.
+- Do not copy `layer_summary`, `source_editable`, `confidence`, `notes`, `warnings`, or prose fields into the final Effector JSON.
+- If the target brief says confidence is low, still emit the best operation but keep the patch small. Do not add comments or explanations.
+
+Example target brief input:
+{
+  "schema": "psdc.effector_target_brief.v1",
+  "targets": [
+    {
+      "recommended_operation": "replace_text",
+      "target": {
+        "path": ["TitleTreatment", "Title Treatment 100", "Title Treatment 100"],
+        "smart_object_chain": [
+          {
+            "layer_id": 35,
+            "name": "Title Treatment 100",
+            "filename": "Title Treatment 100.psb",
+            "filetype": "8bpb",
+            "kind": "data"
+          }
+        ]
+      },
+      "operation_args": {
+        "value": "Burger Launch"
+      }
+    }
+  ],
+  "new_layers": []
+}
+
+Correct output for that target brief:
+{
+  "schema": "psdc.native_patch.v1",
+  "operations": [
+    {
+      "op": "replace_text",
+      "target": {
+        "path": ["TitleTreatment", "Title Treatment 100", "Title Treatment 100"],
+        "smart_object_chain": [
+          {
+            "layer_id": 35,
+            "name": "Title Treatment 100",
+            "filename": "Title Treatment 100.psb",
+            "filetype": "8bpb",
+            "kind": "data"
+          }
+        ]
+      },
+      "value": "Burger Launch"
+    }
+  ]
+}
 
 When asked to edit a PSD:
 1. Read the snapshot JSON produced by PSDC PSD Encoder.

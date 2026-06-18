@@ -168,6 +168,11 @@ Preferred LLM output is a small `psdc.native_patch.v1` operation list. The effec
 
 With `psd` connected, operations are paired back to the original Photoshop layer structure by ID, index path, full layer path, then name. Without `psd`, PSDC starts from a blank native document and instantiates editable layers from create operations. In JSON-only mode, `set_adjustment`, `set_effect`, and `replace_text` are treated as create-style operations so LLM edits can still produce editable adjustment layers, effect layers, and type layers.
 
+Recommended Gemini prompt wiring:
+
+- New PSD from text only: use `prompts/psdc-native-json-authoring-prompt.md` as the Gemini system prompt, put your creative request in the regular prompt, then send the JSON output to `PSDC PSD Effector` without a `PSD` input.
+- Edit an existing PSD: connect `PSDC Load PSD` to `PSDC PSD Encoder`, send the encoder JSON to Gemini node 1 using `prompts/psdc-native-target-planner-prompt.md` plus your requested change in the system prompt, send that target brief to Gemini node 2 using `prompts/psdc-native-json-authoring-prompt.md`, then send node 2's JSON output and the original `PSD` into `PSDC PSD Effector`.
+
 Supported patch operations:
 
 - `rename_layer`
