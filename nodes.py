@@ -31,6 +31,8 @@ MAX_RESOLUTION = 16384
 PSD_STACK_TYPE = "PSDC_PSD_STACK"
 NODE_DIR = os.path.dirname(os.path.abspath(__file__))
 NATIVE_PROTOTYPE_LIBRARY = os.path.join(NODE_DIR, "assets", "psdc_adjustment_prototypes.psd")
+NATIVE_TEXT_PROTOTYPE_LIBRARY = os.path.join(NODE_DIR, "assets", "psdc_type_prototypes.psd")
+DEFAULT_NATIVE_DOCUMENT_SIZE = 1024
 
 
 def file_sha256(path):
@@ -1788,6 +1790,7 @@ def serialize_psd_document(psd, source_path=None, include_nested_smart_objects=T
                 "create_group",
                 "create_adjustment",
                 "create_effect_layer",
+                "create_text",
             ],
         },
         "layers": [
@@ -2295,12 +2298,22 @@ def psd_stack_source_path(psd_stack):
     raise ValueError("Could not resolve the original PSD file. Load it with PSDC Load PSD before applying native JSON edits.")
 
 
-def iter_native_psd_layers(container, index_path=()):
+def iter_native_psd_layers(container, index_path=(), name_path=()):
     for index, layer in enumerate(container):
         current_path = index_path + (index,)
+        current_name_path = name_path + (getattr(layer, "name", "") or "",)
         yield current_path, layer
         if layer.is_group():
-            yield from iter_native_psd_layers(layer, current_path)
+            yield from iter_native_psd_layers(layer, current_path, current_name_path)
+
+
+def iter_native_psd_layers_with_name_paths(container, index_path=(), name_path=()):
+    for index, layer in enumerate(container):
+        current_index_path = index_path + (index,)
+        current_name_path = name_path + (getattr(layer, "name", "") or "",)
+        yield current_index_path, current_name_path, layer
+        if layer.is_group():
+            yield from iter_native_psd_layers_with_name_paths(layer, current_index_path, current_name_path)
 
 
 def iter_json_structure_layers(layers):
@@ -2320,9 +2333,11 @@ def native_psd_layer_lookup(psd):
     by_index_path = {}
     by_id = {}
     by_name = {}
+    by_path = {}
 
-    for index_path, layer in iter_native_psd_layers(psd):
+    for index_path, name_path, layer in iter_native_psd_layers_with_name_paths(psd):
         by_index_path[index_path] = layer
+        by_path[name_path] = layer
 
         layer_id = layer_id_from_tags(layer)
         if layer_id is not None and layer_id not in by_id:
@@ -2332,10 +2347,10 @@ def native_psd_layer_lookup(psd):
         if name and name not in by_name:
             by_name[name] = layer
 
-    return by_index_path, by_id, by_name
+    return by_index_path, by_id, by_name, by_path
 
 
-def find_native_layer_for_json(layer_info, by_index_path, by_id, by_name):
+def find_native_layer_for_json(layer_info, by_index_path, by_id, by_name, by_path):
     layer_id = layer_info.get("id")
     if layer_id is not None and layer_id in by_id:
         return by_id[layer_id]
@@ -2348,6 +2363,12 @@ def find_native_layer_for_json(layer_info, by_index_path, by_id, by_name):
             path_key = None
         if path_key in by_index_path:
             return by_index_path[path_key]
+
+    path = layer_info.get("path")
+    if isinstance(path, list):
+        path_key = tuple(str(value) for value in path)
+        if path_key in by_path:
+            return by_path[path_key]
 
     name = layer_info.get("name")
     if name in by_name:
@@ -2765,7 +2786,7 @@ def parse_psd_structure_json(json_text):
 
 
 def apply_structure_to_native_psd_object(psd, structure):
-    by_index_path, by_id, by_name = native_psd_layer_lookup(psd)
+    by_index_path, by_id, by_name, by_path = native_psd_layer_lookup(psd)
 
     matched_layers = 0
     metadata_updates = 0
@@ -2773,7 +2794,7 @@ def apply_structure_to_native_psd_object(psd, structure):
     unmatched_layers = []
 
     for layer_info in iter_json_structure_layers(structure.get("layers")):
-        layer = find_native_layer_for_json(layer_info, by_index_path, by_id, by_name)
+        layer = find_native_layer_for_json(layer_info, by_index_path, by_id, by_name, by_path)
         if layer is None:
             unmatched_layers.append(layer_info)
             continue
@@ -2823,6 +2844,7 @@ SUPPORTED_NATIVE_PATCH_OPERATIONS = {
     "create_adjustment",
     "create_effect_layer",
     "create_effect",
+    "create_text",
 }
 
 ADJUSTMENT_PATCH_TAGS = {
@@ -2867,6 +2889,7 @@ def parse_native_patch_json(patch_json):
 
     normalized = {
         "schema": NATIVE_PATCH_SCHEMA,
+        "document": copy.deepcopy(patch.get("document", {})) if isinstance(patch.get("document", {}), dict) else {},
         "source": patch.get("source", {}) if isinstance(patch.get("source", {}), dict) else {},
         "operations": [],
     }
@@ -2876,6 +2899,102 @@ def parse_native_patch_json(patch_json):
             continue
         normalized["operations"].append(copy.deepcopy(operation))
     return normalized
+
+
+def document_size_from_native_patch(patch):
+    document = patch.get("document") if isinstance(patch, dict) else None
+    if not isinstance(document, dict):
+        source = patch.get("source") if isinstance(patch, dict) else None
+        document = source.get("document") if isinstance(source, dict) else None
+    if not isinstance(document, dict):
+        document = {}
+
+    width = clamp_int(document.get("width"), DEFAULT_NATIVE_DOCUMENT_SIZE, 1, MAX_RESOLUTION)
+    height = clamp_int(document.get("height"), DEFAULT_NATIVE_DOCUMENT_SIZE, 1, MAX_RESOLUTION)
+
+    operations = patch.get("operations") if isinstance(patch, dict) else None
+    if isinstance(operations, list):
+        for operation in operations:
+            if not isinstance(operation, dict):
+                continue
+            bbox = operation.get("bbox")
+            if not isinstance(bbox, dict):
+                continue
+            width = max(width, clamp_int(bbox.get("right"), width, 1, MAX_RESOLUTION))
+            height = max(height, clamp_int(bbox.get("bottom"), height, 1, MAX_RESOLUTION))
+
+    return int(width), int(height)
+
+
+def document_size_from_json_or_patch(edit):
+    if isinstance(edit, dict) and isinstance(edit.get("layers"), list):
+        return document_size_from_json_structure(edit)
+    if isinstance(edit, dict) and (edit.get("schema") == NATIVE_PATCH_SCHEMA or isinstance(edit.get("operations"), list)):
+        return document_size_from_native_patch(edit)
+    document = edit.get("document") if isinstance(edit, dict) else None
+    if isinstance(document, dict):
+        return (
+            clamp_int(document.get("width"), DEFAULT_NATIVE_DOCUMENT_SIZE, 1, MAX_RESOLUTION),
+            clamp_int(document.get("height"), DEFAULT_NATIVE_DOCUMENT_SIZE, 1, MAX_RESOLUTION),
+        )
+    return DEFAULT_NATIVE_DOCUMENT_SIZE, DEFAULT_NATIVE_DOCUMENT_SIZE
+
+
+def operation_target_name(operation, fallback):
+    target = operation.get("target")
+    if isinstance(target, dict):
+        if target.get("name"):
+            return str(target.get("name"))
+        path = target.get("path")
+        if isinstance(path, list) and path:
+            return str(path[-1])
+    return fallback
+
+
+def blank_native_patch_operation(operation):
+    op_name = operation.get("op")
+    if op_name == "set_adjustment":
+        adjustment_type = operation.get("adjustment", operation.get("type"))
+        return {
+            "op": "create_adjustment",
+            "type": adjustment_type,
+            "name": operation.get("name") or operation_target_name(operation, f"PSDC {str(adjustment_type).replace('_', ' ').title()}"),
+            "value": operation.get("value", {}),
+            "visible": operation.get("visible", True),
+            "opacity": operation.get("opacity", 255),
+            "opacity_unit": operation.get("opacity_unit", operation.get("unit")),
+            "blend_mode": operation.get("blend_mode", "norm"),
+            "clipping": operation.get("clipping", False),
+            "bbox": operation.get("bbox"),
+        }
+    if op_name == "set_effect":
+        effect = operation.get("effect", operation.get("type"))
+        return {
+            "op": "create_effect_layer",
+            "effect": effect,
+            "name": operation.get("name") or operation_target_name(operation, f"PSDC {str(effect).replace('_', ' ').title()}"),
+            "value": operation.get("value", {}),
+            "visible": operation.get("visible", True),
+            "opacity": operation.get("opacity", 255),
+            "opacity_unit": operation.get("opacity_unit", operation.get("unit")),
+            "fill_opacity": operation.get("fill_opacity", 255),
+            "blend_mode": operation.get("blend_mode", "norm"),
+            "clipping": operation.get("clipping", False),
+            "bbox": operation.get("bbox"),
+        }
+    if op_name == "replace_text":
+        return {
+            "op": "create_text",
+            "name": operation.get("name") or operation_target_name(operation, "PSDC Text"),
+            "value": operation.get("value", ""),
+            "visible": operation.get("visible", True),
+            "opacity": operation.get("opacity", 255),
+            "opacity_unit": operation.get("opacity_unit", operation.get("unit")),
+            "blend_mode": operation.get("blend_mode", "norm"),
+            "clipping": operation.get("clipping", False),
+            "bbox": operation.get("bbox"),
+        }
+    return operation
 
 
 def iter_native_psd_layers_with_paths(container, index_path=(), name_path=()):
@@ -3366,6 +3485,15 @@ def create_effect_layer_info(operation):
 
     name = str(operation.get("name") or f"PSDC {str(effect).replace('_', ' ').title()}")
     class_id = effect_class_id(effect)
+    bbox = operation.get("bbox") if isinstance(operation.get("bbox"), dict) else {}
+    left = clamp_int(bbox.get("left"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    top = clamp_int(bbox.get("top"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    right = clamp_int(bbox.get("right"), left + 1, -MAX_RESOLUTION, MAX_RESOLUTION)
+    bottom = clamp_int(bbox.get("bottom"), top + 1, -MAX_RESOLUTION, MAX_RESOLUTION)
+    if right <= left:
+        right = left + 1
+    if bottom <= top:
+        bottom = top + 1
     return {
         "id": None,
         "name": name,
@@ -3376,7 +3504,7 @@ def create_effect_layer_info(operation):
         "fill_opacity": opacity_to_native_value(operation.get("fill_opacity", 255), operation.get("fill_opacity_unit")),
         "blend_mode": operation.get("blend_mode", "norm"),
         "clipping": bool_from_json(operation.get("clipping"), False),
-        "bbox": {"left": 0, "top": 0, "right": 1, "bottom": 1},
+        "bbox": {"left": left, "top": top, "right": right, "bottom": bottom},
         "has_mask": False,
         "has_vector_mask": False,
         "has_effects": True,
@@ -3385,6 +3513,43 @@ def create_effect_layer_info(operation):
         "effect_descriptors": {},
         "descriptors": {},
         "smart_object": None,
+        "children": [],
+    }
+
+
+def create_text_layer_info(operation):
+    contents = str(operation.get("value", operation.get("text", "Text")))
+    name = str(operation.get("name") or (contents.strip().splitlines()[0] if contents.strip() else "PSDC Text"))
+    bbox = operation.get("bbox") if isinstance(operation.get("bbox"), dict) else {}
+    left = clamp_int(bbox.get("left"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    top = clamp_int(bbox.get("top"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    right = clamp_int(bbox.get("right"), left + 512, -MAX_RESOLUTION, MAX_RESOLUTION)
+    bottom = clamp_int(bbox.get("bottom"), top + 128, -MAX_RESOLUTION, MAX_RESOLUTION)
+    if right <= left:
+        right = left + 512
+    if bottom <= top:
+        bottom = top + 128
+
+    return {
+        "id": None,
+        "name": name,
+        "kind": "type",
+        "class": "TypeLayer",
+        "visible": bool_from_json(operation.get("visible"), True),
+        "opacity": opacity_to_native_value(operation.get("opacity", 255), operation.get("opacity_unit")),
+        "fill_opacity": opacity_to_native_value(operation.get("fill_opacity", 255), operation.get("fill_opacity_unit")),
+        "blend_mode": operation.get("blend_mode", "norm"),
+        "clipping": bool_from_json(operation.get("clipping"), False),
+        "bbox": {"left": left, "top": top, "right": right, "bottom": bottom},
+        "has_mask": False,
+        "has_vector_mask": False,
+        "has_effects": False,
+        "adjustments": {},
+        "effects": [],
+        "effect_descriptors": {},
+        "descriptors": {},
+        "smart_object": None,
+        "editable": {"text": {"contents": contents}},
         "children": [],
     }
 
@@ -3439,6 +3604,17 @@ def create_effect_layer_operation(psd, operation):
     return f"Created native effect layer {layer_info['name']!r}."
 
 
+def create_text_operation(psd, operation):
+    parent = resolve_create_parent(psd, operation)
+    layer_info = create_text_layer_info(operation)
+    layer = clone_native_prototype_layer(layer_info, load_native_prototype_lookup(), allocate_native_layer_id(psd))
+    if layer is None:
+        raise ValueError("No native text prototype is available.")
+    insert_created_layer(parent, layer, operation)
+    psd._mark_updated()
+    return f"Created native text layer {layer_info['name']!r}."
+
+
 def create_group_operation(psd, operation):
     parent_target = operation.get("parent")
     parent = psd
@@ -3468,6 +3644,8 @@ def apply_native_patch_operation(psd, operation):
         return create_adjustment_operation(psd, operation)
     if op_name in ("create_effect_layer", "create_effect"):
         return create_effect_layer_operation(psd, operation)
+    if op_name == "create_text":
+        return create_text_operation(psd, operation)
     if op_name == "replace_text":
         return replace_text_operation(psd, operation)
 
@@ -3546,7 +3724,7 @@ def validate_native_patch(source_path, patch_json, snapshot_json=None):
         if op_name not in SUPPORTED_NATIVE_PATCH_OPERATIONS:
             report["failed"].append({"index": index, "op": op_name, "target": operation.get("target"), "message": f"Unsupported operation: {op_name}"})
             continue
-        if op_name in ("create_group", "create_adjustment", "create_effect_layer", "create_effect"):
+        if op_name in ("create_group", "create_adjustment", "create_effect_layer", "create_effect", "create_text"):
             report["applied"].append({"index": index, "op": op_name, "target": operation.get("parent"), "message": f"Validated {op_name} operation."})
             continue
         try:
@@ -3583,7 +3761,11 @@ def validate_native_patch(source_path, patch_json, snapshot_json=None):
 
 def apply_native_patch_json_to_native_psd(source_path, patch_json, output_path):
     patch = parse_native_patch_json(patch_json)
-    psd = PSDImage.open(source_path)
+    if source_path:
+        psd = PSDImage.open(source_path)
+    else:
+        width, height = document_size_from_native_patch(patch)
+        psd = PSDImage.new("RGB", (int(width), int(height)))
     report = {
         "schema": NATIVE_PATCH_REPORT_SCHEMA,
         "applied": [],
@@ -3593,6 +3775,8 @@ def apply_native_patch_json_to_native_psd(source_path, patch_json, output_path):
     }
 
     for index, operation in enumerate(patch["operations"]):
+        if not source_path:
+            operation = blank_native_patch_operation(operation)
         op_name = operation.get("op")
         try:
             message = apply_native_patch_operation(psd, operation)
@@ -3657,24 +3841,31 @@ def native_layer_effect_keys_from_effects(layer):
 
 
 def load_native_prototype_lookup(library_path=None):
-    library_path = library_path or NATIVE_PROTOTYPE_LIBRARY
-    if not os.path.isfile(library_path):
-        raise ValueError(f"Missing PSDC native prototype library: {library_path}")
-
-    library_psd = PSDImage.open(library_path)
+    library_paths = [library_path] if library_path else [NATIVE_PROTOTYPE_LIBRARY, NATIVE_TEXT_PROTOTYPE_LIBRARY]
     lookup = {}
-    for layer in library_psd:
-        for tag_name in native_prototype_adjustment_tags(layer):
-            lookup.setdefault(tag_name, layer)
-            lookup.setdefault(normalize_prototype_key(tag_name), layer)
-        for effect_key in native_layer_effect_keys_from_effects(layer):
-            for alias in effect_aliases_for_key(effect_key):
-                lookup.setdefault(alias, layer)
-                lookup.setdefault(normalize_prototype_key(alias), layer)
-        lookup.setdefault(str(getattr(layer, "kind", "")).lower(), layer)
-        lookup.setdefault(normalize_prototype_key(getattr(layer, "kind", "")), layer)
-        lookup.setdefault(type(layer).__name__.lower(), layer)
-        lookup.setdefault(normalize_prototype_key(type(layer).__name__), layer)
+
+    for current_path in library_paths:
+        if not current_path:
+            continue
+        if not os.path.isfile(current_path):
+            if current_path == NATIVE_PROTOTYPE_LIBRARY:
+                raise ValueError(f"Missing PSDC native prototype library: {current_path}")
+            logging.warning("Missing optional PSDC native prototype library: %s", current_path)
+            continue
+
+        library_psd = PSDImage.open(current_path)
+        for layer in library_psd:
+            for tag_name in native_prototype_adjustment_tags(layer):
+                lookup.setdefault(tag_name, layer)
+                lookup.setdefault(normalize_prototype_key(tag_name), layer)
+            for effect_key in native_layer_effect_keys_from_effects(layer):
+                for alias in effect_aliases_for_key(effect_key):
+                    lookup.setdefault(alias, layer)
+                    lookup.setdefault(normalize_prototype_key(alias), layer)
+            lookup.setdefault(str(getattr(layer, "kind", "")).lower(), layer)
+            lookup.setdefault(normalize_prototype_key(getattr(layer, "kind", "")), layer)
+            lookup.setdefault(type(layer).__name__.lower(), layer)
+            lookup.setdefault(normalize_prototype_key(type(layer).__name__), layer)
 
     return lookup
 
@@ -3688,23 +3879,60 @@ def native_layer_info_tag_names(layer_info):
 
 def native_layer_info_effect_keys(layer_info):
     effects = layer_info.get("effects")
-    if not isinstance(effects, list):
-        return []
-
     keys = []
-    for effect in effects:
-        if not isinstance(effect, dict):
-            continue
-        class_id = effect.get("_classID")
-        if class_id:
-            keys.append(class_id)
-        effect_type = effect.get("_type")
-        if effect_type and effect_type != "Descriptor":
-            keys.append(effect_type)
+    if isinstance(effects, list):
+        for effect in effects:
+            if not isinstance(effect, dict):
+                continue
+            class_id = effect.get("_classID")
+            if class_id:
+                keys.append(class_id)
+            effect_type = effect.get("_type")
+            if effect_type and effect_type != "Descriptor":
+                keys.append(effect_type)
+
+    keys.extend(native_layer_info_effect_descriptor_keys(layer_info))
     return keys
 
 
+def native_layer_info_effect_descriptor_keys(layer_info):
+    effect_descriptors = layer_info.get("effect_descriptors")
+    if not isinstance(effect_descriptors, dict):
+        return []
+
+    keys = []
+
+    def add_effect_key(value):
+        normalized = normalize_prototype_key(value)
+        for class_id, aliases in EFFECT_CLASS_ALIASES.items():
+            candidates = {normalize_prototype_key(class_id)}
+            candidates.update(normalize_prototype_key(alias) for alias in aliases)
+            if normalized in candidates:
+                keys.append(class_id)
+                keys.extend(str(alias) for alias in aliases)
+
+    def walk(value):
+        if isinstance(value, dict):
+            for marker in ("_classID", "classID", "_type"):
+                marker_value = value.get(marker)
+                if marker_value:
+                    add_effect_key(marker_value)
+            for item_key, item_value in value.items():
+                add_effect_key(item_key)
+                walk(item_value)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(effect_descriptors)
+    return list(dict.fromkeys(keys))
+
+
 def layer_info_has_native_prototype_payload(layer_info):
+    if str(layer_info.get("kind", "")).lower() == "type" or str(layer_info.get("class", "")).lower() == "typelayer":
+        return True
+    if layer_info_text_contents(layer_info) is not None:
+        return True
     if native_layer_info_tag_names(layer_info):
         return True
     if native_layer_info_effect_keys(layer_info):
@@ -3731,6 +3959,59 @@ def prototype_key_for_layer_info(layer_info):
         return class_name
 
     return None
+
+
+def layer_info_text_contents(layer_info):
+    editable = layer_info.get("editable")
+    if isinstance(editable, dict):
+        text_info = editable.get("text")
+        if isinstance(text_info, dict) and text_info.get("contents") is not None:
+            return str(text_info.get("contents"))
+
+    type_tool = layer_type_tool_object(layer_info)
+    if isinstance(type_tool, dict) and type_tool.get("text") is not None:
+        return str(type_tool.get("text"))
+
+    if layer_info.get("text") is not None:
+        return str(layer_info.get("text"))
+
+    return None
+
+
+def position_native_layer_from_info(layer, layer_info):
+    bbox = layer_info.get("bbox")
+    if not isinstance(bbox, dict):
+        return
+
+    try:
+        left = int(bbox.get("left", getattr(layer, "left", 0)))
+        top = int(bbox.get("top", getattr(layer, "top", 0)))
+    except (TypeError, ValueError):
+        return
+
+    try:
+        layer.left = left
+        layer.top = top
+    except Exception:
+        return
+
+
+def apply_text_layer_info(layer, layer_info):
+    if str(getattr(layer, "kind", "")).lower() != "type":
+        return 0
+
+    contents = layer_info_text_contents(layer_info)
+    if contents is None:
+        return 0
+
+    try:
+        if str(layer.text) == contents:
+            return 0
+        replace_type_layer_text(layer, contents)
+        return 1
+    except Exception as error:
+        logging.warning("PSDC could not apply editable text contents to %s: %s", getattr(layer, "name", "text layer"), error)
+        return 0
 
 
 def max_native_layer_id(psd):
@@ -3792,7 +4073,9 @@ def clone_native_prototype_layer(layer_info, prototype_lookup, layer_id):
     layer = copy.deepcopy(prototype)
     assign_native_layer_id(layer, layer_id)
     patch_native_layer_metadata(layer, layer_info)
+    position_native_layer_from_info(layer, layer_info)
     patch_native_layer_tags(layer, layer_info)
+    apply_text_layer_info(layer, layer_info)
     return layer
 
 
@@ -4004,6 +4287,36 @@ def load_psd_file_to_stack(path):
     }
 
 
+def psdc_output_psd_path(output_dir, filename_prefix, width, height):
+    full_output_folder, filename, counter, _subfolder, _filename_prefix = folder_paths.get_save_image_path(
+        filename_prefix,
+        output_dir,
+        int(width),
+        int(height),
+    )
+    file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
+    return os.path.join(full_output_folder, file)
+
+
+def native_psd_file_to_output_stack(path):
+    stack = load_psd_file_to_stack(path)
+    for layer in stack.get("layers", []):
+        layer["native_source_layer"] = True
+    return stack
+
+
+def create_native_stack_from_structure_json(json_text, output_path, source_psd=None, layer_mode="all_layers"):
+    result = create_native_psd_from_structure_json(
+        json_text,
+        output_path,
+        source_psd=source_psd,
+        layer_mode=layer_mode,
+    )
+    stack = native_psd_file_to_output_stack(output_path)
+    stack["native_decode_report"] = result
+    return stack, result
+
+
 class PSDC_PSDLoad:
     @classmethod
     def INPUT_TYPES(cls):
@@ -4151,7 +4464,9 @@ class PSDC_JSONEncoder:
     CATEGORY = "PSDC/Image"
 
     def execute(self, psd, pretty=True):
-        if is_psd_stack(psd) and psd_stack_structure_matches_current_layers(psd):
+        if is_psd_stack(psd) and isinstance(psd.get("native_passthrough"), dict) and isinstance(psd.get("structure"), dict):
+            structure = psd["structure"]
+        elif is_psd_stack(psd) and psd_stack_structure_matches_current_layers(psd):
             structure = psd["structure"]
         elif is_psd_stack(psd):
             structure = synthesize_stack_structure(psd)
@@ -4199,6 +4514,9 @@ class PSDC_PSDEncoder(PSDC_JSONEncoder):
 
 
 class PSDC_PSDDecoder:
+    def __init__(self):
+        self.output_dir = folder_paths.get_temp_directory()
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -4217,12 +4535,24 @@ class PSDC_PSDDecoder:
     CATEGORY = "PSDC/Text"
 
     def execute(self, json_text, batch_size=1, psd=None):
-        decoded_psd = decode_psd_structure_json(
-            json_text,
-            source_psd=psd,
-            layer_mode="top_level",
-            batch_size=batch_size,
-        )
+        try:
+            structure = parse_psd_structure_json(json_text)
+            width, height = document_size_from_json_structure(structure)
+            output_path = psdc_output_psd_path(self.output_dir, "PSDC_PSD_Decoder", width, height)
+            decoded_psd, _result = create_native_stack_from_structure_json(
+                json_text,
+                output_path,
+                source_psd=psd,
+                layer_mode="all_layers",
+            )
+        except Exception as error:
+            logging.warning("PSDC PSD Decoder fell back to raster stack decode after native decode failed: %s", error)
+            decoded_psd = decode_psd_structure_json(
+                json_text,
+                source_psd=psd,
+                layer_mode="top_level",
+                batch_size=batch_size,
+            )
         return (flatten_psd_stack(decoded_psd), decoded_psd)
 
 
@@ -4234,36 +4564,40 @@ class PSDC_PSDEffector:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "psd": ("PSD",),
                 "edit_json": ("STRING", {"multiline": True, "dynamicPrompts": False}),
                 "filename_prefix": ("STRING", {"default": "PSDC_PSD_Effector"}),
             },
+            "optional": {
+                "psd": ("PSD",),
+            },
         }
 
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("path", "report")
+    RETURN_TYPES = ("IMAGE", "PSD")
+    RETURN_NAMES = ("image", "psd")
     FUNCTION = "execute"
     OUTPUT_NODE = True
     CATEGORY = "PSDC/Text"
 
-    def execute(self, psd, edit_json, filename_prefix="PSDC_PSD_Effector"):
-        source_path = psd_stack_source_path(psd)
-        width = int(psd.get("width", 1)) if is_psd_stack(psd) else 1
-        height = int(psd.get("height", 1)) if is_psd_stack(psd) else 1
-
-        full_output_folder, filename, counter, _subfolder, _filename_prefix = folder_paths.get_save_image_path(
-            filename_prefix,
-            self.output_dir,
-            width,
-            height,
-        )
-        file = f"{filename.replace('%batch_num%', '0')}_{counter:05}_.psd"
-        output_path = os.path.join(full_output_folder, file)
-
+    def execute(self, edit_json, filename_prefix="PSDC_PSD_Effector", psd=None):
         try:
             edit = json.loads(edit_json)
         except json.JSONDecodeError as error:
             raise ValueError(f"Invalid PSDC edit JSON: {error}") from error
+
+        source_path = None
+        if is_psd_stack(psd):
+            try:
+                source_path = psd_stack_source_path(psd)
+            except Exception:
+                source_path = native_passthrough_source_path(psd)
+
+        if is_psd_stack(psd):
+            width = int(psd.get("width", 1))
+            height = int(psd.get("height", 1))
+        else:
+            width, height = document_size_from_json_or_patch(edit)
+
+        output_path = psdc_output_psd_path(self.output_dir, filename_prefix, width, height)
 
         if isinstance(edit, dict) and (edit.get("schema") == NATIVE_PATCH_SCHEMA or isinstance(edit.get("operations"), list)):
             report = apply_native_patch_json_to_native_psd(source_path, edit_json, output_path)
@@ -4271,7 +4605,13 @@ class PSDC_PSDEffector:
             applied = len(report.get("applied", []))
             failed = len(report.get("failed", []))
         else:
-            result = apply_structure_json_to_native_psd(source_path, edit_json, output_path)
+            native_source = psd if is_psd_stack(psd) else None
+            result = create_native_psd_from_structure_json(
+                edit_json,
+                output_path,
+                source_psd=native_source,
+                layer_mode="all_layers",
+            )
             mode = "native_snapshot"
             applied = int(result.get("metadata_updates", 0)) + int(result.get("native_tag_updates", 0))
             failed = 0
@@ -4285,7 +4625,8 @@ class PSDC_PSDEffector:
         report_text = json.dumps(report, indent=2, ensure_ascii=False)
         message = f"Saved effected PSD: {output_path} (mode={mode}, applied={applied}, failed={failed})"
         logging.info("PSDC PSD Effector %s", message)
-        return {"ui": {"text": [message, report_text]}, "result": (output_path, report_text)}
+        output_psd = native_psd_file_to_output_stack(output_path)
+        return {"ui": {"text": [message, report_text]}, "result": (flatten_psd_stack(output_psd), output_psd)}
 
 
 class PSDC_PreviewPSD:

@@ -24,7 +24,8 @@ Core rules:
 - Prefer hiding layers with set_visibility false instead of deleting. Delete is not a supported operation.
 - For text replacement, target only single-style-run type layers or type layers inside embedded PSD/PSB smart objects.
 - For adjustment/effect edits, use semantic patch operations when available. If editing effects, prefer raw_descriptors copied from the snapshot because Photoshop effects are descriptor-backed.
-- To create a new editable adjustment or effect layer, use create_adjustment or create_effect_layer. PSDC PSD Effector clones a Photoshop-native prototype and patches it.
+- To create a new editable adjustment, effect, or type layer, use create_adjustment, create_effect_layer, or create_text. PSDC PSD Effector clones a Photoshop-native prototype and patches it.
+- If no original PSD is connected, PSDC starts from a blank native document. In that mode, set_adjustment, set_effect, and replace_text are interpreted as create-style operations on new blank layers.
 
 Supported patch operations:
 
@@ -204,6 +205,19 @@ create_effect_layer for a new editable Stroke effect layer:
   }
 }
 
+create_text for a new editable single-style-run type layer:
+{
+  "op": "create_text",
+  "name": "AI Title",
+  "value": "Burger Launch",
+  "bbox": {
+    "left": 120,
+    "top": 80,
+    "right": 900,
+    "bottom": 220
+  }
+}
+
 Supported create_adjustment type values:
 - vibrance
 - brightness_contrast
@@ -239,7 +253,7 @@ When asked to edit a PSD:
 5. Do not emit the full snapshot unless explicitly asked.
 
 When asked to create new native adjustment/fill/effect layers from nothing:
-- Use create_adjustment or create_effect_layer in the patch JSON.
+- Use create_adjustment, create_effect_layer, or create_text in the patch JSON.
 - Prefer semantic values for common controls. Use "raw" on create_adjustment or "raw_descriptors" on create_effect_layer only when exact Photoshop descriptor control is needed.
-- For raster reconstruction, PSDC PSD Decoder can rebuild raster PSDC layers from raw encoder JSON and an optional original PSD. JSON alone produces blank raster layers because JSON does not contain pixels.
+- PSDC PSD Decoder can rebuild native editable type, adjustment/fill, and effect layers from raw encoder JSON. With an original PSD connected, it pairs back to the source structure; with JSON only, pixel-only layers are blank because JSON does not contain pixels.
 ```

@@ -149,20 +149,24 @@ Loaded native PSDs emit `psdc.native_snapshot.v1` JSON. The snapshot includes th
 
 ### PSDC PSD Effector
 
-Takes the original `PSD` plus LLM edit JSON and writes a new native PSD.
+Takes LLM edit JSON plus an optional original `PSD`, writes a new native PSD, and returns it back into the Comfy graph.
 
 Inputs:
 
-- `psd`: The original PSDC `PSD` stack from `PSDC Load PSD`.
 - `edit_json`: LLM output describing the edits.
 - `filename_prefix`: Output filename prefix.
+- `psd`: Optional original PSDC `PSD` stack from `PSDC Load PSD`.
 
 Outputs:
 
-- `path`: The saved PSD path.
-- `report`: JSON report of applied and failed edits.
+- `image`: Flattened preview image from the effected PSD.
+- `psd`: PSDC `PSD` stack with a native passthrough source pointing at the effected PSD.
+
+The node UI also shows the saved PSD path and a JSON report of applied and failed edits.
 
 Preferred LLM output is a small `psdc.native_patch.v1` operation list. The effector also accepts a full edited snapshot JSON for compatibility with earlier prompts, but the patch form is safer.
+
+With `psd` connected, operations are paired back to the original Photoshop layer structure by ID, index path, full layer path, then name. Without `psd`, PSDC starts from a blank native document and instantiates editable layers from create operations. In JSON-only mode, `set_adjustment`, `set_effect`, and `replace_text` are treated as create-style operations so LLM edits can still produce editable adjustment layers, effect layers, and type layers.
 
 Supported patch operations:
 
@@ -178,10 +182,11 @@ Supported patch operations:
 - `create_group`
 - `create_adjustment`
 - `create_effect_layer`
+- `create_text`
 
 Native text replacement supports single-style-run Photoshop type layers and text inside embedded PSD/PSB smart objects. It updates the text descriptor, EngineData text, and EngineData run lengths. Photoshop may still need to refresh stale cached previews after opening the patched file.
 
-Native layer creation uses PSDC's bundled Photoshop prototype library. `create_adjustment` can instantiate editable adjustment/fill layers such as Curves, Levels, Hue/Saturation, Solid Color Fill, Gradient Map, Vibrance, Exposure, and the other bundled prototypes. `create_effect_layer` can instantiate editable effect-bearing pixel layers for Drop Shadow, Inner Shadow, Outer Glow, Inner Glow, Stroke, and Bevel/Emboss. Common semantic fields are supported, and `raw` / `raw_descriptors` can be used for descriptor-level control.
+Native layer creation uses PSDC's bundled Photoshop prototype library. `create_adjustment` can instantiate editable adjustment/fill layers such as Curves, Levels, Hue/Saturation, Solid Color Fill, Gradient Map, Vibrance, Exposure, and the other bundled prototypes. `create_effect_layer` can instantiate editable effect-bearing pixel layers for Drop Shadow, Inner Shadow, Outer Glow, Inner Glow, Stroke, and Bevel/Emboss. `create_text` can instantiate an editable single-style-run type layer. Common semantic fields are supported, and `raw` / `raw_descriptors` can be used for descriptor-level control.
 
 Example Effector patch:
 
@@ -223,7 +228,7 @@ Example Effector patch:
 
 ### PSDC PSD Decoder
 
-Turns raw encoder JSON back into a PSDC raster stack.
+Turns raw encoder JSON back into a PSDC stack backed by a native PSD file.
 
 Inputs:
 
@@ -234,9 +239,9 @@ Inputs:
 Outputs:
 
 - `image`: Flattened preview image.
-- `psd`: PSDC raster stack.
+- `psd`: PSDC `PSD` stack with a native passthrough source.
 
-With `psd` connected, the decoder reuses the original raster image and mask tensors so the decoded stack matches the source file. Without `psd`, JSON has no pixel data, so the decoder creates blank transparent raster layers that preserve the document size, layer names, order, opacity, visibility, and structure metadata.
+With `psd` connected, the decoder applies the JSON to the original native Photoshop structure and pairs layers by ID, index path, full layer path, then name. Without `psd`, JSON has no pixel data, so the decoder creates a blank native document and instantiates editable type layers, adjustment/fill layers, and effect layers from PSDC's prototypes. Pixel-only layers without native descriptor data remain blank preview layers because the JSON does not contain pixels.
 
 ### PSDC Preview PSD
 
