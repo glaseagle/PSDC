@@ -405,6 +405,14 @@ workflows/psdc_native_masks_3_layer_smoke.json
 
 The command-line smoke workflow is documented in [AGENTS.md](AGENTS.md).
 
+Example native PSD generated through `PSDC PSD Effector`:
+
+```text
+examples/psdc_curves_fill_comfy_generated.psd
+```
+
+It contains an editable Solid Color Fill layer and an editable Curves adjustment layer. The patch JSON used to generate it is included next to the PSD.
+
 ## Notes and Limits
 
 - Layer masks are pixel masks, not vector masks.

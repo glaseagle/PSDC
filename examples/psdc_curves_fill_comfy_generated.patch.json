@@ -1,0 +1,47 @@
+{
+  "schema": "psdc.native_patch.v1",
+  "document": {
+    "width": 1024,
+    "height": 1024
+  },
+  "operations": [
+    {
+      "op": "create_adjustment",
+      "type": "solid_color",
+      "name": "Comfy Solid Color Fill",
+      "value": {
+        "color": "#1e88e5"
+      }
+    },
+    {
+      "op": "create_adjustment",
+      "type": "curves",
+      "name": "Comfy Contrast Curves",
+      "value": {
+        "channels": [
+          {
+            "channel": "composite",
+            "points": [
+              {
+                "input": 0,
+                "output": 0
+              },
+              {
+                "input": 80,
+                "output": 55
+              },
+              {
+                "input": 180,
+                "output": 215
+              },
+              {
+                "input": 255,
+                "output": 255
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
