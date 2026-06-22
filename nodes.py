@@ -4227,19 +4227,36 @@ def apply_native_patch_json_to_native_psd(source_path, patch_json, output_path):
     patch = parse_native_patch_json(patch_json)
     if source_path:
         psd = PSDImage.open(source_path)
+        base_mode = "native_source"
+        blank_mode = False
     else:
         width, height = document_size_from_native_patch(patch)
         psd = PSDImage.new("RGB", (int(width), int(height)))
+        base_mode = "blank"
+        blank_mode = True
+
+    expand_psd_canvas_for_patch(psd, patch)
+    report = apply_native_patch_to_psd_object(psd, patch, source_path=source_path, blank_mode=blank_mode, base_mode=base_mode)
+    save_psd_photoshop_safe(psd, output_path)
+    report["output_path"] = output_path
+    report["source_path"] = source_path
+    return report
+
+
+def apply_native_patch_to_psd_object(psd, patch, source_path=None, blank_mode=False, base_mode=None):
     report = {
         "schema": NATIVE_PATCH_REPORT_SCHEMA,
         "applied": [],
         "skipped": [],
         "failed": [],
         "warnings": [],
+        "base_mode": base_mode or ("blank" if blank_mode else "psd_object"),
+        "source_path": source_path,
     }
 
     for index, operation in enumerate(patch["operations"]):
-        if not source_path:
+        operation = copy.deepcopy(operation)
+        if blank_mode:
             operation = blank_native_patch_operation(operation)
         op_name = operation.get("op")
         try:
@@ -4253,9 +4270,6 @@ def apply_native_patch_json_to_native_psd(source_path, patch_json, output_path):
             "Native metadata was patched and PSDC marked the document dirty so psd-tools refreshes merged preview image data during save when possible. Photoshop may still need to refresh cached text, smart object, adjustment, or effect previews on open."
         )
 
-    save_psd_photoshop_safe(psd, output_path)
-    report["output_path"] = output_path
-    report["source_path"] = source_path
     return report
 
 
@@ -4771,6 +4785,73 @@ def native_psd_file_to_output_stack(path):
     return stack
 
 
+def explicit_patch_canvas_size(patch, current_width, current_height):
+    width = int(current_width)
+    height = int(current_height)
+
+    document = patch.get("document") if isinstance(patch, dict) else None
+    if not isinstance(document, dict):
+        source = patch.get("source") if isinstance(patch, dict) else None
+        document = source.get("document") if isinstance(source, dict) else None
+    if isinstance(document, dict):
+        if document.get("width") is not None:
+            width = max(width, clamp_int(document.get("width"), width, 1, MAX_RESOLUTION))
+        if document.get("height") is not None:
+            height = max(height, clamp_int(document.get("height"), height, 1, MAX_RESOLUTION))
+
+    operations = patch.get("operations") if isinstance(patch, dict) else None
+    if isinstance(operations, list):
+        for operation in operations:
+            if not isinstance(operation, dict):
+                continue
+            bbox = operation.get("bbox")
+            if not isinstance(bbox, dict):
+                continue
+            width = max(width, clamp_int(bbox.get("right"), width, 1, MAX_RESOLUTION))
+            height = max(height, clamp_int(bbox.get("bottom"), height, 1, MAX_RESOLUTION))
+
+    return int(width), int(height)
+
+
+def expand_psd_canvas_for_patch(psd, patch):
+    target_width, target_height = explicit_patch_canvas_size(patch, int(psd.width), int(psd.height))
+    if target_width == int(psd.width) and target_height == int(psd.height):
+        return False
+    psd._record.header.width = target_width
+    psd._record.header.height = target_height
+    psd._mark_updated()
+    return True
+
+
+def create_native_psd_from_source_stack(psd_stack, source_path, batch_index):
+    psd_image = PSDImage.open(source_path)
+    source_width = int(psd_image.width)
+    source_height = int(psd_image.height)
+    target_width = int(psd_stack.get("width", source_width))
+    target_height = int(psd_stack.get("height", source_height))
+
+    if target_width != source_width or target_height != source_height:
+        logging.warning(
+            "Native PSD source size %sx%s differs from PSDC stack size %sx%s. "
+            "Keeping native layers unscaled and expanding the canvas only.",
+            source_width,
+            source_height,
+            target_width,
+            target_height,
+        )
+        psd_image._record.header.width = max(source_width, target_width)
+        psd_image._record.header.height = max(source_height, target_height)
+        psd_image._mark_updated()
+
+    width = int(psd_image.width)
+    height = int(psd_image.height)
+    for layer in psd_overlay_layers(psd_stack):
+        rgb_image, alpha_mask, has_alpha, opacity = layer_to_pil(layer, batch_index, width, height)
+        append_pixel_layer_with_mask(psd_image, rgb_image, alpha_mask, layer["name"], has_alpha, opacity)
+
+    return psd_image
+
+
 def create_native_stack_from_structure_json(json_text, output_path, source_psd=None, layer_mode="all_layers"):
     result = create_native_psd_from_structure_json(
         json_text,
@@ -5087,7 +5168,49 @@ class PSDC_PSDEffector:
         output_path = psdc_output_psd_path(self.output_dir, filename_prefix, width, height)
 
         if isinstance(edit, dict) and (edit.get("schema") == NATIVE_PATCH_SCHEMA or isinstance(edit.get("operations"), list)):
-            report = apply_native_patch_json_to_native_psd(source_path, edit_json, output_path)
+            patch = parse_native_patch_json(edit_json)
+            base_overlay_layers = 0
+            base_stack_layers = 0
+
+            if source_path:
+                base_mode = "native_source"
+                if is_psd_stack(psd) and psd_overlay_layers(psd):
+                    base_overlay_layers = len(psd_overlay_layers(psd))
+                    base_stack_layers = len(psd.get("layers", []))
+                    base_psd = create_native_psd_from_source_stack(psd, source_path, 0)
+                else:
+                    base_psd = PSDImage.open(source_path)
+                blank_mode = False
+            elif is_psd_stack(psd):
+                base_mode = "synthetic_stack"
+                base_stack_layers = len(psd.get("layers", []))
+                base_overlay_layers = base_stack_layers
+                base_psd = create_psd_image_from_stack(psd, 0)
+                blank_mode = False
+            else:
+                base_mode = "blank"
+                blank_width, blank_height = document_size_from_native_patch(patch)
+                base_psd = PSDImage.new("RGB", (int(blank_width), int(blank_height)))
+                blank_mode = True
+
+            expanded_canvas = expand_psd_canvas_for_patch(base_psd, patch)
+            report = apply_native_patch_to_psd_object(
+                base_psd,
+                patch,
+                source_path=source_path,
+                blank_mode=blank_mode,
+                base_mode=base_mode,
+            )
+            report["base_stack_layers"] = base_stack_layers
+            report["base_overlay_layers"] = base_overlay_layers
+            report["expanded_canvas_for_patch"] = expanded_canvas
+            if is_psd_stack(psd) and int(psd.get("batch_size", 1)) > 1:
+                report["warnings"].append(
+                    "PSDC PSD Effector used batch 0 from the connected PSD stack as the native patch base. Use separate Effector runs for additional batch entries."
+                )
+            save_psd_photoshop_safe(base_psd, output_path)
+            report["output_path"] = output_path
+            report["source_path"] = source_path
             mode = "native_patch"
             applied = len(report.get("applied", []))
             failed = len(report.get("failed", []))
@@ -5301,32 +5424,7 @@ class PSDC_SavePSD:
         return {}
 
     def create_native_psd_from_source_stack(self, psd_stack, source_path, batch_index):
-        psd_image = PSDImage.open(source_path)
-        source_width = int(psd_image.width)
-        source_height = int(psd_image.height)
-        target_width = int(psd_stack.get("width", source_width))
-        target_height = int(psd_stack.get("height", source_height))
-
-        if target_width != source_width or target_height != source_height:
-            logging.warning(
-                "Native PSD source size %sx%s differs from PSDC stack size %sx%s. "
-                "Keeping native layers unscaled and expanding the canvas only.",
-                source_width,
-                source_height,
-                target_width,
-                target_height,
-            )
-            psd_image._record.header.width = max(source_width, target_width)
-            psd_image._record.header.height = max(source_height, target_height)
-            psd_image._mark_updated()
-
-        width = int(psd_image.width)
-        height = int(psd_image.height)
-        for layer in psd_overlay_layers(psd_stack):
-            rgb_image, alpha_mask, has_alpha, opacity = layer_to_pil(layer, batch_index, width, height)
-            append_pixel_layer_with_mask(psd_image, rgb_image, alpha_mask, layer["name"], has_alpha, opacity)
-
-        return psd_image
+        return create_native_psd_from_source_stack(psd_stack, source_path, batch_index)
 
     def save_native_source_psd(self, psd_stack, source_path, filename, counter, full_output_folder, file_mode, batch_size):
         overlay_layers = psd_overlay_layers(psd_stack)

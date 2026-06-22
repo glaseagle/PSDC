@@ -34,6 +34,7 @@ Core rules:
 - For adjustment/effect edits, use semantic patch operations when available. If editing effects and exact Photoshop control is needed, use raw_descriptors copied from the snapshot because Photoshop effects are descriptor-backed.
 - For layer movement, prefer duplicate_layer, move_layer, reorder_layer, and translate_layer. Do not request scale, rotate, crop, or warp unless the user explicitly accepts that unsupported transform fields will fail with a structured report.
 - To create a new editable adjustment, effect, or type layer, use create_adjustment, create_effect_layer, or create_text. PSDC PSD Effector clones a Photoshop-native prototype and patches it.
+- If a PSDC raster stack is connected to Effector, native patch operations are additive to that stack unless you explicitly target an existing layer. The incoming image/mask layers remain in the output PSD.
 - If no original PSD is connected, PSDC starts from a blank native document. In that mode, set_adjustment, set_effect, and replace_text are interpreted as create-style operations on new blank layers.
 
 Supported patch operations:

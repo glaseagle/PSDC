@@ -1,0 +1,62 @@
+{
+  "1": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 96,
+      "height": 96,
+      "batch_size": 1,
+      "color": 16711680
+    }
+  },
+  "2": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 96,
+      "height": 96,
+      "batch_size": 1,
+      "color": 65280
+    }
+  },
+  "3": {
+    "class_type": "PSDC Image To PSD",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ]
+    }
+  },
+  "4": {
+    "class_type": "PSDC Image To PSD",
+    "inputs": {
+      "image": [
+        "2",
+        0
+      ]
+    }
+  },
+  "5": {
+    "class_type": "PSDC PSD Layer Combine",
+    "inputs": {
+      "psds.psd0": [
+        "3",
+        1
+      ],
+      "psds.psd1": [
+        "4",
+        1
+      ]
+    }
+  },
+  "6": {
+    "class_type": "PSDC PSD Effector",
+    "inputs": {
+      "edit_json": "{\"schema\":\"psdc.native_patch.v1\",\"document\":{\"width\":96,\"height\":96},\"operations\":[{\"op\":\"create_adjustment\",\"type\":\"solid_color\",\"name\":\"Blue Fill\",\"value\":{\"color\":\"#0033ff\"}}]}",
+      "filename_prefix": "PSDC_Validation/requested_effector_raster_stack_preservation/requested_effector_raster_stack_preservation",
+      "psd": [
+        "5",
+        1
+      ]
+    }
+  }
+}

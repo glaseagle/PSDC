@@ -210,7 +210,15 @@ The node UI also shows the saved PSD path and a JSON report of applied and faile
 
 Preferred LLM output is a small `psdc.native_patch.v1` operation list. The effector also accepts a full edited snapshot JSON for compatibility with earlier prompts, but the patch form is safer.
 
-With `psd` connected, operations are paired back to the original Photoshop layer structure by ID, index path, full layer path, then name. Without `psd`, PSDC starts from a blank native document and instantiates editable layers from create operations. In JSON-only mode, `set_adjustment`, `set_effect`, and `replace_text` are treated as create-style operations so LLM edits can still produce editable adjustment layers, effect layers, and type layers.
+With `psd` connected, operations are paired back to the original Photoshop layer structure by ID, index path, full layer path, then name. If the connected PSD is a synthetic PSDC raster stack, the Effector first materializes every incoming raster/mask layer into the native document, then applies native patch operations above that preserved base. If the connected PSD came from `PSDC Load PSD` and has PSDC raster overlays added by composite/combine/image-to-PSD nodes, the Effector reopens the original native PSD, appends those overlays, then applies the native patch. Without `psd`, PSDC starts from a blank native document and instantiates editable layers from create operations. In JSON-only mode, `set_adjustment`, `set_effect`, and `replace_text` are treated as create-style operations so LLM edits can still produce editable adjustment layers, effect layers, and type layers.
+
+The Effector report includes `base_mode` so workflow validation can confirm which path was used:
+
+- `native_source`: original Photoshop PSD was preserved as the base.
+- `synthetic_stack`: incoming PSDC raster stack was materialized and preserved before native edits.
+- `blank`: no PSD was connected, so the file was created from JSON only.
+
+Reports also include `base_stack_layers` and `base_overlay_layers` when a connected PSD stack contributes raster content.
 
 Recommended Gemini prompt wiring:
 
@@ -483,6 +491,7 @@ Per-feature validation workflows are included under `workflows/`. Each validatio
 - requested text style controls
 - requested preview refresh metadata
 - requested duplicate-name targeting
+- requested effector raster stack preservation
 - existing native mask export
 - existing image composite PSD
 - existing image-to-PSD

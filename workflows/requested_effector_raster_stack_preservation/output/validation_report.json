@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "feature": "requested_effector_raster_stack_preservation",
+  "prompt_id": "e4f1b5f7-068b-4ce6-aeb6-75f834767f95",
+  "status": "success",
+  "base_mode": "synthetic_stack",
+  "base_stack_layers": 2,
+  "base_overlay_layers": 2,
+  "layer_count": 3,
+  "pixel_layer_count": 2,
+  "layer_names": [
+    "Layer 1",
+    "Layer 1",
+    "Blue Fill"
+  ],
+  "layer_kinds": [
+    "pixel",
+    "pixel",
+    "solidcolorfill"
+  ],
+  "produced_files": [
+    "requested_effector_raster_stack_preservation_00001_.psd"
+  ]
+}
