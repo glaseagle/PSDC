@@ -188,16 +188,17 @@
                      {
                          "ok":  true,
                          "feature":  "requested_randomize_all_adjustable_parameters",
-                         "prompt_id":  "2ca1a034-2114-4409-b1a7-e644e362eb1f",
+                         "prompt_id":  "54d36700-2154-4f5f-8b2b-567fa2d4b1f6",
                          "status":  "success",
                          "source_file":  "psdc_pad_full_feature_test.psd",
-                         "seed":  8675309,
-                         "operation_count":  101,
+                         "seed":  8675310,
+                         "generation_mode":  "photoshop_safe_semantic_and_bounded_raw",
+                         "operation_count":  105,
                          "layer_metadata_operations":  81,
-                         "adjustment_operations":  18,
-                         "effect_operations":  1,
+                         "adjustment_operations":  17,
+                         "effect_operations":  6,
                          "text_operations":  1,
-                         "descriptor_scalar_parameters":  659,
+                         "safe_adjustable_parameters":  172,
                          "skipped_adjustment_tags_without_safe_parameters":  [
                                                                                 {
                                                                                     "layer":  "Color Lookup 1",
@@ -206,11 +207,15 @@
                                                                                 {
                                                                                     "layer":  "Invert 1",
                                                                                     "tag":  "INVERT"
+                                                                                },
+                                                                                {
+                                                                                    "layer":  "Pattern Fill 1",
+                                                                                    "tag":  "PATTERN_FILL_SETTING"
                                                                                 }
                                                                             ],
                          "layer_count":  27,
                          "text_values":  [
-                                             "Randomized PSDC 0953"
+                                             "PS Safe Randomized 3010"
                                          ],
                          "produced_files":  [
                                                 "requested_randomize_all_adjustable_parameters_00001_.psd"

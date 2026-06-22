@@ -1,11 +1,13 @@
 {
-  "seed": 8675309,
+  "seed": 8675310,
   "source_file": "psdc_pad_full_feature_test.psd",
+  "generation_mode": "photoshop_safe_semantic_and_bounded_raw",
   "layer_count": 27,
   "layer_metadata_operations": 81,
-  "adjustment_operations": 18,
-  "effect_operations": 1,
+  "adjustment_operations": 17,
+  "effect_operations": 6,
   "text_operations": 1,
+  "safe_adjustable_parameters": 172,
   "skipped_adjustment_tags_without_safe_parameters": [
     {
       "layer": "Color Lookup 1",
@@ -14,8 +16,11 @@
     {
       "layer": "Invert 1",
       "tag": "INVERT"
+    },
+    {
+      "layer": "Pattern Fill 1",
+      "tag": "PATTERN_FILL_SETTING"
     }
   ],
-  "operation_count": 101,
-  "descriptor_scalar_parameters": 659
+  "operation_count": 105
 }

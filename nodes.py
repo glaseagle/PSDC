@@ -2557,7 +2557,16 @@ def patch_native_mapping(current_value, json_value):
 
         key = key_lookup[json_key]
         item = current_value[key]
-        if patch_native_object(item, item_json):
+        if isinstance(item_json, list):
+            item_changed, updated = patch_native_sequence(item, item_json)
+            if item_changed:
+                if isinstance(item, tuple):
+                    try:
+                        current_value[key] = updated
+                    except Exception:
+                        pass
+                changed = True
+        elif patch_native_object(item, item_json):
             changed = True
         elif hasattr(item, "value"):
             try:
