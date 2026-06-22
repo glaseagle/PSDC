@@ -1,0 +1,2622 @@
+{
+  "schema": "psdc.native_patch.v1",
+  "document": {
+    "width": 1920,
+    "height": 1080,
+    "color_mode": "RGB",
+    "depth": 8,
+    "layer_count_top_level": 27,
+    "layer_order": "array order follows psd-tools iteration order used by PSDC; children preserve their group nesting."
+  },
+  "source": {
+    "file": "psdc_pad_full_feature_test.psd",
+    "description": "Deterministic randomization patch for every PSDC-exposed adjustable parameter in the pad test PSD.",
+    "seed": 8675309
+  },
+  "operations": [
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 1
+      },
+      "value": 137
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 1
+      },
+      "value": 79
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 1
+      },
+      "value": "DIFFERENCE"
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 2
+      },
+      "value": 204
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 2
+      },
+      "value": 154
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 2
+      },
+      "value": "LUMINOSITY"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 2
+      },
+      "adjustment": "vibrance",
+      "value": {
+        "raw": {
+          "_type": "DescriptorBlock",
+          "_name": "\u0000",
+          "_classID": "null",
+          "_version": 16,
+          "_ostype": "Objc",
+          "useLegacy": true
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 3
+      },
+      "value": 106
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 3
+      },
+      "value": 189
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 3
+      },
+      "value": "LUMINOSITY"
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 4
+      },
+      "value": 200
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 4
+      },
+      "value": 198
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 4
+      },
+      "value": "OVERLAY"
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 5
+      },
+      "value": 199
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 5
+      },
+      "value": 207
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 5
+      },
+      "value": "HARD_LIGHT"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 5
+      },
+      "adjustment": "brightness_contrast",
+      "value": {
+        "raw": {
+          "_type": "BrightnessContrast",
+          "brightness": 46,
+          "contrast": 6,
+          "lab_only": 1,
+          "mean": 163
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 6
+      },
+      "value": 158
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 6
+      },
+      "value": 37
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 6
+      },
+      "value": "OVERLAY"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 6
+      },
+      "adjustment": "levels",
+      "value": {
+        "raw": [
+          {
+            "_type": "LevelRecord",
+            "gamma": 114,
+            "input_ceiling": 237,
+            "input_floor": 89,
+            "output_ceiling": 203,
+            "output_floor": 18
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 235,
+            "input_ceiling": 183,
+            "input_floor": 35,
+            "output_ceiling": 208,
+            "output_floor": 29
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 80,
+            "input_ceiling": 253,
+            "input_floor": 68,
+            "output_ceiling": 238,
+            "output_floor": 34
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 236,
+            "input_ceiling": 240,
+            "input_floor": 17,
+            "output_ceiling": 215,
+            "output_floor": 23
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 156,
+            "input_ceiling": 168,
+            "input_floor": 43,
+            "output_ceiling": 226,
+            "output_floor": 4
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 22,
+            "input_ceiling": 251,
+            "input_floor": 31,
+            "output_ceiling": 185,
+            "output_floor": 77
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 160,
+            "input_ceiling": 222,
+            "input_floor": 48,
+            "output_ceiling": 180,
+            "output_floor": 66
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 28,
+            "input_ceiling": 218,
+            "input_floor": 43,
+            "output_ceiling": 206,
+            "output_floor": 89
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 81,
+            "input_ceiling": 232,
+            "input_floor": 39,
+            "output_ceiling": 224,
+            "output_floor": 10
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 112,
+            "input_ceiling": 243,
+            "input_floor": 2,
+            "output_ceiling": 201,
+            "output_floor": 93
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 135,
+            "input_ceiling": 167,
+            "input_floor": 15,
+            "output_ceiling": 172,
+            "output_floor": 25
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 113,
+            "input_ceiling": 224,
+            "input_floor": 49,
+            "output_ceiling": 224,
+            "output_floor": 13
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 131,
+            "input_ceiling": 168,
+            "input_floor": 70,
+            "output_ceiling": 173,
+            "output_floor": 6
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 156,
+            "input_ceiling": 0,
+            "input_floor": 27,
+            "output_ceiling": 197,
+            "output_floor": 10
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 62,
+            "input_ceiling": 233,
+            "input_floor": 39,
+            "output_ceiling": 187,
+            "output_floor": 27
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 170,
+            "input_ceiling": 186,
+            "input_floor": 31,
+            "output_ceiling": 201,
+            "output_floor": 9
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 197,
+            "input_ceiling": 250,
+            "input_floor": 57,
+            "output_ceiling": 191,
+            "output_floor": 9
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 80,
+            "input_ceiling": 159,
+            "input_floor": 45,
+            "output_ceiling": 231,
+            "output_floor": 60
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 200,
+            "input_ceiling": 212,
+            "input_floor": 53,
+            "output_ceiling": 197,
+            "output_floor": 68
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 184,
+            "input_ceiling": 227,
+            "input_floor": 32,
+            "output_ceiling": 219,
+            "output_floor": 31
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 80,
+            "input_ceiling": 210,
+            "input_floor": 27,
+            "output_ceiling": 215,
+            "output_floor": 59
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 136,
+            "input_ceiling": 189,
+            "input_floor": 7,
+            "output_ceiling": 241,
+            "output_floor": 84
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 77,
+            "input_ceiling": 185,
+            "input_floor": 84,
+            "output_ceiling": 231,
+            "output_floor": 19
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 241,
+            "input_ceiling": 167,
+            "input_floor": 68,
+            "output_ceiling": 161,
+            "output_floor": 32
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 183,
+            "input_ceiling": 172,
+            "input_floor": 90,
+            "output_ceiling": 228,
+            "output_floor": 30
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 55,
+            "input_ceiling": 201,
+            "input_floor": 7,
+            "output_ceiling": 206,
+            "output_floor": 82
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 104,
+            "input_ceiling": 176,
+            "input_floor": 46,
+            "output_ceiling": 180,
+            "output_floor": 73
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 235,
+            "input_ceiling": 236,
+            "input_floor": 39,
+            "output_ceiling": 181,
+            "output_floor": 8
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 205,
+            "input_ceiling": 251,
+            "input_floor": 44,
+            "output_ceiling": 202,
+            "output_floor": 32
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 140,
+            "input_ceiling": 218,
+            "input_floor": 81,
+            "output_ceiling": 202,
+            "output_floor": 33
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 56,
+            "input_ceiling": 250,
+            "input_floor": 67,
+            "output_ceiling": 199,
+            "output_floor": 43
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 95,
+            "input_ceiling": 179,
+            "input_floor": 34,
+            "output_ceiling": 165,
+            "output_floor": 8
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 234,
+            "input_ceiling": 168,
+            "input_floor": 28,
+            "output_ceiling": 237,
+            "output_floor": 76
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 151,
+            "input_ceiling": 189,
+            "input_floor": 21,
+            "output_ceiling": 194,
+            "output_floor": 89
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 235,
+            "input_ceiling": 165,
+            "input_floor": 81,
+            "output_ceiling": 174,
+            "output_floor": 59
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 149,
+            "input_ceiling": 237,
+            "input_floor": 21,
+            "output_ceiling": 222,
+            "output_floor": 4
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 45,
+            "input_ceiling": 216,
+            "input_floor": 62,
+            "output_ceiling": 215,
+            "output_floor": 14
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 165,
+            "input_ceiling": 160,
+            "input_floor": 43,
+            "output_ceiling": 215,
+            "output_floor": 11
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 64,
+            "input_ceiling": 210,
+            "input_floor": 86,
+            "output_ceiling": 230,
+            "output_floor": 28
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 216,
+            "input_ceiling": 194,
+            "input_floor": 27,
+            "output_ceiling": 178,
+            "output_floor": 74
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 232,
+            "input_ceiling": 171,
+            "input_floor": 63,
+            "output_ceiling": 224,
+            "output_floor": 28
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 46,
+            "input_ceiling": 245,
+            "input_floor": 81,
+            "output_ceiling": 200,
+            "output_floor": 41
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 93,
+            "input_ceiling": 216,
+            "input_floor": 2,
+            "output_ceiling": 178,
+            "output_floor": 2
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 132,
+            "input_ceiling": 159,
+            "input_floor": 49,
+            "output_ceiling": 251,
+            "output_floor": 68
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 211,
+            "input_ceiling": 165,
+            "input_floor": 54,
+            "output_ceiling": 252,
+            "output_floor": 30
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 181,
+            "input_ceiling": 221,
+            "input_floor": 19,
+            "output_ceiling": 190,
+            "output_floor": 29
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 37,
+            "input_ceiling": 248,
+            "input_floor": 30,
+            "output_ceiling": 162,
+            "output_floor": 30
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 120,
+            "input_ceiling": 247,
+            "input_floor": 66,
+            "output_ceiling": 187,
+            "output_floor": 11
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 136,
+            "input_ceiling": 164,
+            "input_floor": 82,
+            "output_ceiling": 199,
+            "output_floor": 59
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 226,
+            "input_ceiling": 248,
+            "input_floor": 3,
+            "output_ceiling": 198,
+            "output_floor": 31
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 59,
+            "input_ceiling": 218,
+            "input_floor": 39,
+            "output_ceiling": 160,
+            "output_floor": 81
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 68,
+            "input_ceiling": 209,
+            "input_floor": 71,
+            "output_ceiling": 194,
+            "output_floor": 8
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 234,
+            "input_ceiling": 228,
+            "input_floor": 90,
+            "output_ceiling": 163,
+            "output_floor": 36
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 218,
+            "input_ceiling": 242,
+            "input_floor": 95,
+            "output_ceiling": 192,
+            "output_floor": 27
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 87,
+            "input_ceiling": 201,
+            "input_floor": 60,
+            "output_ceiling": 210,
+            "output_floor": 41
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 121,
+            "input_ceiling": 189,
+            "input_floor": 65,
+            "output_ceiling": 227,
+            "output_floor": 43
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 38,
+            "input_ceiling": 169,
+            "input_floor": 41,
+            "output_ceiling": 236,
+            "output_floor": 9
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 189,
+            "input_ceiling": 219,
+            "input_floor": 7,
+            "output_ceiling": 205,
+            "output_floor": 72
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 132,
+            "input_ceiling": 196,
+            "input_floor": 62,
+            "output_ceiling": 162,
+            "output_floor": 91
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 178,
+            "input_ceiling": 181,
+            "input_floor": 94,
+            "output_ceiling": 224,
+            "output_floor": 83
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 156,
+            "input_ceiling": 172,
+            "input_floor": 59,
+            "output_ceiling": 213,
+            "output_floor": 46
+          },
+          {
+            "_type": "LevelRecord",
+            "gamma": 205,
+            "input_ceiling": 187,
+            "input_floor": 64,
+            "output_ceiling": 207,
+            "output_floor": 85
+          }
+        ]
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 7
+      },
+      "value": 198
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 7
+      },
+      "value": 89
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 7
+      },
+      "value": "HUE"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 7
+      },
+      "adjustment": "curves",
+      "value": {
+        "version": 1,
+        "is_map": false,
+        "channels": [
+          {
+            "index": 0,
+            "points": [
+              {
+                "input": 0,
+                "output": 6
+              },
+              {
+                "input": 161,
+                "output": 137
+              },
+              {
+                "input": 255,
+                "output": 243
+              }
+            ]
+          },
+          {
+            "index": 1,
+            "points": [
+              {
+                "input": 0,
+                "output": 0
+              },
+              {
+                "input": 89,
+                "output": 188
+              },
+              {
+                "input": 255,
+                "output": 245
+              }
+            ]
+          },
+          {
+            "index": 2,
+            "points": [
+              {
+                "input": 0,
+                "output": 11
+              },
+              {
+                "input": 180,
+                "output": 170
+              },
+              {
+                "input": 255,
+                "output": 232
+              }
+            ]
+          },
+          {
+            "index": 3,
+            "points": [
+              {
+                "input": 0,
+                "output": 21
+              },
+              {
+                "input": 86,
+                "output": 106
+              },
+              {
+                "input": 255,
+                "output": 242
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 8
+      },
+      "value": 139
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 8
+      },
+      "value": 46
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 8
+      },
+      "value": "HARD_LIGHT"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 8
+      },
+      "adjustment": "exposure",
+      "value": {
+        "raw": {
+          "_type": "Exposure",
+          "exposure": 48.538,
+          "gamma": 211,
+          "offset": 33.952,
+          "version": 1
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 9
+      },
+      "value": 55
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 9
+      },
+      "value": 207
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 9
+      },
+      "value": "VIVID_LIGHT"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 9
+      },
+      "adjustment": "hue_saturation",
+      "value": {
+        "raw": {
+          "_type": "HueSaturation",
+          "colorization": [
+            80,
+            167,
+            196
+          ],
+          "enable": 127,
+          "items": [
+            [
+              [
+                73,
+                19,
+                103,
+                198
+              ],
+              [
+                201,
+                182,
+                177
+              ]
+            ],
+            [
+              [
+                21,
+                50,
+                46,
+                93
+              ],
+              [
+                234,
+                68,
+                11
+              ]
+            ],
+            [
+              [
+                35,
+                38,
+                119,
+                37
+              ],
+              [
+                161,
+                63,
+                140
+              ]
+            ],
+            [
+              [
+                136,
+                144,
+                71,
+                68
+              ],
+              [
+                113,
+                42,
+                192
+              ]
+            ],
+            [
+              [
+                211,
+                44,
+                87,
+                134
+              ],
+              [
+                97,
+                38,
+                131
+              ]
+            ],
+            [
+              [
+                164,
+                114,
+                217,
+                161
+              ],
+              [
+                123,
+                138,
+                45
+              ]
+            ]
+          ],
+          "master": [
+            202,
+            171,
+            238
+          ],
+          "version": 2
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 10
+      },
+      "value": 122
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 10
+      },
+      "value": 67
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 10
+      },
+      "value": "HUE"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 10
+      },
+      "adjustment": "color_balance",
+      "value": {
+        "raw": {
+          "_type": "ColorBalance",
+          "highlights": [
+            87,
+            128,
+            204
+          ],
+          "luminosity": 86,
+          "midtones": [
+            50,
+            66,
+            54
+          ],
+          "shadows": [
+            52,
+            142,
+            168
+          ]
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 11
+      },
+      "value": 228
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 11
+      },
+      "value": 231
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 11
+      },
+      "value": "COLOR"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 11
+      },
+      "adjustment": "black_and_white",
+      "value": {
+        "raw": {
+          "_type": "DescriptorBlock",
+          "_name": "\u0000",
+          "_classID": "null",
+          "_version": 16,
+          "_ostype": "Objc",
+          "Rd": 236,
+          "Yllw": 23,
+          "Grn": 89,
+          "Cyn": 189,
+          "Bl": 97,
+          "Mgnt": 35,
+          "useTint": true,
+          "tintColor": {
+            "_type": "Descriptor",
+            "_name": "\u0000",
+            "_classID": "RGBC",
+            "_ostype": "Objc",
+            "Rd": 38.296,
+            "Grn": 12.559,
+            "Bl": 36.846
+          },
+          "bwPresetKind": 160,
+          "blackAndWhitePresetFileName": "\u0000"
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 12
+      },
+      "value": 223
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 12
+      },
+      "value": 192
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 12
+      },
+      "value": "SOFT_LIGHT"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 12
+      },
+      "adjustment": "photo_filter",
+      "value": {
+        "raw": {
+          "_type": "PhotoFilter",
+          "color_components": [
+            113,
+            197,
+            98,
+            208
+          ],
+          "color_space": 7,
+          "density": 108,
+          "luminosity": 27,
+          "version": 2,
+          "xyz": null
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 13
+      },
+      "value": 62
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 13
+      },
+      "value": 116
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 13
+      },
+      "value": "SOFT_LIGHT"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 13
+      },
+      "adjustment": "channel_mixer",
+      "value": {
+        "raw": {
+          "_type": "ChannelMixer",
+          "monochrome": 162,
+          "unknown": "ddd",
+          "version": 1
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 14
+      },
+      "value": 177
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 14
+      },
+      "value": 63
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 14
+      },
+      "value": "EXCLUSION"
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 15
+      },
+      "value": 82
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 15
+      },
+      "value": 52
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 15
+      },
+      "value": "HARD_LIGHT"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 15
+      },
+      "adjustment": "selective_color",
+      "value": {
+        "raw": {
+          "_type": "SelectiveColor",
+          "method": 129,
+          "version": 1
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 16
+      },
+      "value": 78
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 16
+      },
+      "value": 69
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 16
+      },
+      "value": "OVERLAY"
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 17
+      },
+      "value": 35
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 17
+      },
+      "value": 97
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 17
+      },
+      "value": "MULTIPLY"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 17
+      },
+      "adjustment": "posterize",
+      "value": {
+        "raw": 216
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 18
+      },
+      "value": 40
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 18
+      },
+      "value": 85
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 18
+      },
+      "value": "EXCLUSION"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 18
+      },
+      "adjustment": "threshold",
+      "value": {
+        "raw": 30
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 19
+      },
+      "value": 187
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 19
+      },
+      "value": 91
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 19
+      },
+      "value": "DIFFERENCE"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 19
+      },
+      "adjustment": "gradient_map",
+      "value": {
+        "raw": {
+          "_type": "GradientMap",
+          "color_model": 3,
+          "color_stops": [
+            {
+              "_type": "ColorStop",
+              "color": [
+                160,
+                63,
+                62,
+                191
+              ],
+              "location": 77,
+              "midpoint": 229,
+              "mode": 0
+            },
+            {
+              "_type": "ColorStop",
+              "color": [
+                16,
+                169,
+                178,
+                139
+              ],
+              "location": 115,
+              "midpoint": 97,
+              "mode": 0
+            }
+          ],
+          "expansion": 240,
+          "interpolation": 155,
+          "is_dithered": 246,
+          "is_reversed": 74,
+          "length": 32,
+          "maximum_color": [
+            87,
+            191,
+            40,
+            123
+          ],
+          "method": "Smoo",
+          "minimum_color": [
+            111,
+            199,
+            127,
+            253
+          ],
+          "mode": 0,
+          "name": "Foreground to Background\u0000",
+          "random_seed": 45,
+          "roughness": 59,
+          "show_transparency": 154,
+          "transparency_stops": [
+            {
+              "_type": "TransparencyStop",
+              "location": 106,
+              "midpoint": 215,
+              "opacity": 211
+            },
+            {
+              "_type": "TransparencyStop",
+              "location": 108,
+              "midpoint": 183,
+              "opacity": 197
+            }
+          ],
+          "use_vector_color": 186,
+          "version": 3
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 20
+      },
+      "value": 190
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 20
+      },
+      "value": 154
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 20
+      },
+      "value": "LUMINOSITY"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 20
+      },
+      "adjustment": "solid_color",
+      "value": {
+        "raw": {
+          "_type": "DescriptorBlock",
+          "_name": "\u0000",
+          "_classID": "null",
+          "_version": 16,
+          "_ostype": "Objc",
+          "Clr": {
+            "_type": "Descriptor",
+            "_name": "\u0000",
+            "_classID": "RGBC",
+            "_ostype": "Objc",
+            "Rd": 9.098,
+            "Grn": 71.482,
+            "Bl": 21.251
+          }
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 21
+      },
+      "value": 202
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 21
+      },
+      "value": 198
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 21
+      },
+      "value": "COLOR"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 21
+      },
+      "adjustment": "gradient_fill",
+      "value": {
+        "raw": {
+          "_type": "DescriptorBlock",
+          "_name": "\u0000",
+          "_classID": "null",
+          "_version": 16,
+          "_ostype": "Objc",
+          "gradientsInterpolationMethod": {
+            "_type": "Enumerated",
+            "typeID": "gradientInterpolationMethodType",
+            "enum": "Smoo",
+            "name": "b'Smoo'"
+          },
+          "Angl": {
+            "_type": "UnitFloat",
+            "value": 244.943,
+            "unit": "#Ang"
+          },
+          "Type": {
+            "_type": "Enumerated",
+            "typeID": "GrdT",
+            "enum": "Lnr",
+            "name": "Linear"
+          },
+          "noisePreSeed": 101,
+          "Grad": {
+            "_type": "Descriptor",
+            "_name": "Gradient\u0000",
+            "_classID": "Grdn",
+            "_ostype": "Objc",
+            "Nm": "PSDC_RANDOM_DCDTYDN6",
+            "GrdF": {
+              "_type": "Enumerated",
+              "typeID": "GrdF",
+              "enum": "CstS",
+              "name": "CustomStops"
+            },
+            "Intr": 85.857,
+            "Clrs": [
+              {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "Clrt",
+                "_ostype": "Objc",
+                "Clr": {
+                  "_type": "Descriptor",
+                  "_name": "\u0000",
+                  "_classID": "RGBC",
+                  "_ostype": "Objc",
+                  "Rd": 84.868,
+                  "Grn": 35.09,
+                  "Bl": 78.301
+                },
+                "Type": {
+                  "_type": "Enumerated",
+                  "typeID": "Clry",
+                  "enum": "UsrS",
+                  "name": "UserStop"
+                },
+                "Lctn": 1854,
+                "Mdpn": 35
+              },
+              {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "Clrt",
+                "_ostype": "Objc",
+                "Clr": {
+                  "_type": "Descriptor",
+                  "_name": "\u0000",
+                  "_classID": "RGBC",
+                  "_ostype": "Objc",
+                  "Rd": 72.955,
+                  "Grn": 161.644,
+                  "Bl": 87.14
+                },
+                "Type": {
+                  "_type": "Enumerated",
+                  "typeID": "Clry",
+                  "enum": "UsrS",
+                  "name": "UserStop"
+                },
+                "Lctn": 1231,
+                "Mdpn": 46
+              }
+            ],
+            "Trns": [
+              {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "TrnS",
+                "_ostype": "Objc",
+                "Opct": {
+                  "_type": "UnitFloat",
+                  "value": 45.231,
+                  "unit": "#Prc"
+                },
+                "Lctn": 1509,
+                "Mdpn": 46
+              },
+              {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "TrnS",
+                "_ostype": "Objc",
+                "Opct": {
+                  "_type": "UnitFloat",
+                  "value": 63.939,
+                  "unit": "#Prc"
+                },
+                "Lctn": 741,
+                "Mdpn": 2
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 22
+      },
+      "value": 162
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 22
+      },
+      "value": 117
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 22
+      },
+      "value": "MULTIPLY"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 22
+      },
+      "adjustment": "pattern_fill",
+      "value": {
+        "raw": {
+          "_type": "DescriptorBlock",
+          "_name": "\u0000",
+          "_classID": "null",
+          "_version": 16,
+          "_ostype": "Objc",
+          "Ptrn": {
+            "_type": "Descriptor",
+            "_name": "\u0000",
+            "_classID": "Ptrn",
+            "_ostype": "Objc",
+            "Nm": "PSDC_RANDOM_ZWF2BVSO",
+            "Idnt": "f3197738-af2e-5748-9633-71e608de3a81\u0000"
+          }
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 24
+      },
+      "value": 144
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 24
+      },
+      "value": 80
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 24
+      },
+      "value": "EXCLUSION"
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 26
+      },
+      "value": 137
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 26
+      },
+      "value": 35
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 26
+      },
+      "value": "SATURATION"
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 28
+      },
+      "value": 123
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 28
+      },
+      "value": 96
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 28
+      },
+      "value": "EXCLUSION"
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 29
+      },
+      "value": 77
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 29
+      },
+      "value": 85
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 29
+      },
+      "value": "COLOR"
+    },
+    {
+      "op": "set_adjustment",
+      "target": {
+        "id": 29
+      },
+      "adjustment": "solid_color",
+      "value": {
+        "raw": {
+          "_type": "DescriptorBlock",
+          "_name": "\u0000",
+          "_classID": "null",
+          "_version": 16,
+          "_ostype": "Objc",
+          "Clr": {
+            "_type": "Descriptor",
+            "_name": "\u0000",
+            "_classID": "RGBC",
+            "_ostype": "Objc",
+            "Rd": 114.648,
+            "Grn": 5.802,
+            "Bl": 77.121
+          }
+        }
+      }
+    },
+    {
+      "op": "set_effect",
+      "target": {
+        "id": 29
+      },
+      "effect": "raw_descriptors",
+      "value": {
+        "raw_descriptors": {
+          "OBJECT_BASED_EFFECTS_LAYER_INFO": {
+            "_type": "DescriptorBlock2",
+            "_name": "\u0000",
+            "_classID": "null",
+            "_version": 0,
+            "_data_version": 16,
+            "_ostype": "Objc",
+            "Scl": {
+              "_type": "UnitFloat",
+              "value": 48.531,
+              "unit": "#Prc"
+            },
+            "masterFXSwitch": false,
+            "dropShadowMulti": [
+              {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "DrSh",
+                "_ostype": "Objc",
+                "enab": true,
+                "present": true,
+                "showInDialog": false,
+                "Md": {
+                  "_type": "Enumerated",
+                  "typeID": "BlnM",
+                  "enum": "Mltp",
+                  "name": "Multiply"
+                },
+                "Clr": {
+                  "_type": "Descriptor",
+                  "_name": "\u0000",
+                  "_classID": "RGBC",
+                  "_ostype": "Objc",
+                  "Rd": 158.078,
+                  "Grn": 164.063,
+                  "Bl": 104.988
+                },
+                "Opct": {
+                  "_type": "UnitFloat",
+                  "value": 41.354,
+                  "unit": "#Prc"
+                },
+                "uglg": false,
+                "lagl": {
+                  "_type": "UnitFloat",
+                  "value": 95.511,
+                  "unit": "#Ang"
+                },
+                "Dstn": {
+                  "_type": "UnitFloat",
+                  "value": 50.624,
+                  "unit": "#Pxl"
+                },
+                "Ckmt": {
+                  "_type": "UnitFloat",
+                  "value": 22.205,
+                  "unit": "#Pxl"
+                },
+                "blur": {
+                  "_type": "UnitFloat",
+                  "value": 53.478,
+                  "unit": "#Pxl"
+                },
+                "Nose": {
+                  "_type": "UnitFloat",
+                  "value": 27.651,
+                  "unit": "#Prc"
+                },
+                "AntA": true,
+                "TrnS": {
+                  "_type": "Descriptor",
+                  "_name": "\u0000",
+                  "_classID": "ShpC",
+                  "_ostype": "Objc",
+                  "Nm": "PSDC_RANDOM_ITS8DJUA",
+                  "Crv": [
+                    {
+                      "_type": "Descriptor",
+                      "_name": "\u0000",
+                      "_classID": "CrPt",
+                      "_ostype": "Objc",
+                      "Hrzn": 238.006,
+                      "Vrtc": 154.451
+                    },
+                    {
+                      "_type": "Descriptor",
+                      "_name": "\u0000",
+                      "_classID": "CrPt",
+                      "_ostype": "Objc",
+                      "Hrzn": 221.686,
+                      "Vrtc": 45.939
+                    }
+                  ]
+                },
+                "layerConceals": false
+              }
+            ],
+            "innerShadowMulti": [
+              {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "IrSh",
+                "_ostype": "Objc",
+                "enab": true,
+                "present": true,
+                "showInDialog": false,
+                "Md": {
+                  "_type": "Enumerated",
+                  "typeID": "BlnM",
+                  "enum": "Mltp",
+                  "name": "Multiply"
+                },
+                "Clr": {
+                  "_type": "Descriptor",
+                  "_name": "\u0000",
+                  "_classID": "RGBC",
+                  "_ostype": "Objc",
+                  "Rd": 100.464,
+                  "Grn": 89.114,
+                  "Bl": 155.204
+                },
+                "Opct": {
+                  "_type": "UnitFloat",
+                  "value": 11.614,
+                  "unit": "#Prc"
+                },
+                "uglg": false,
+                "lagl": {
+                  "_type": "UnitFloat",
+                  "value": 317.2,
+                  "unit": "#Ang"
+                },
+                "Dstn": {
+                  "_type": "UnitFloat",
+                  "value": 39.352,
+                  "unit": "#Pxl"
+                },
+                "Ckmt": {
+                  "_type": "UnitFloat",
+                  "value": 26.118,
+                  "unit": "#Pxl"
+                },
+                "blur": {
+                  "_type": "UnitFloat",
+                  "value": 91.886,
+                  "unit": "#Pxl"
+                },
+                "Nose": {
+                  "_type": "UnitFloat",
+                  "value": 79.823,
+                  "unit": "#Prc"
+                },
+                "AntA": true,
+                "TrnS": {
+                  "_type": "Descriptor",
+                  "_name": "\u0000",
+                  "_classID": "ShpC",
+                  "_ostype": "Objc",
+                  "Nm": "PSDC_RANDOM_RQ6VY7Q2",
+                  "Crv": [
+                    {
+                      "_type": "Descriptor",
+                      "_name": "\u0000",
+                      "_classID": "CrPt",
+                      "_ostype": "Objc",
+                      "Hrzn": 93.468,
+                      "Vrtc": 218.71
+                    },
+                    {
+                      "_type": "Descriptor",
+                      "_name": "\u0000",
+                      "_classID": "CrPt",
+                      "_ostype": "Objc",
+                      "Hrzn": 99.997,
+                      "Vrtc": 108.202
+                    }
+                  ]
+                }
+              }
+            ],
+            "OrGl": {
+              "_type": "Descriptor",
+              "_name": "\u0000",
+              "_classID": "OrGl",
+              "_ostype": "Objc",
+              "enab": true,
+              "present": true,
+              "showInDialog": false,
+              "Md": {
+                "_type": "Enumerated",
+                "typeID": "BlnM",
+                "enum": "Scrn",
+                "name": "Screen"
+              },
+              "Clr": {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "RGBC",
+                "_ostype": "Objc",
+                "Rd": 216.394,
+                "Grn": 111.116,
+                "Bl": 232.523
+              },
+              "Opct": {
+                "_type": "UnitFloat",
+                "value": 82.639,
+                "unit": "#Prc"
+              },
+              "GlwT": {
+                "_type": "Enumerated",
+                "typeID": "BETE",
+                "enum": "SfBL",
+                "name": "SoftMatte"
+              },
+              "Ckmt": {
+                "_type": "UnitFloat",
+                "value": 25.586,
+                "unit": "#Pxl"
+              },
+              "blur": {
+                "_type": "UnitFloat",
+                "value": 7.66,
+                "unit": "#Pxl"
+              },
+              "Nose": {
+                "_type": "UnitFloat",
+                "value": 16.313,
+                "unit": "#Prc"
+              },
+              "ShdN": {
+                "_type": "UnitFloat",
+                "value": 28.325,
+                "unit": "#Prc"
+              },
+              "AntA": true,
+              "TrnS": {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "ShpC",
+                "_ostype": "Objc",
+                "Nm": "PSDC_RANDOM_6HM386TG",
+                "Crv": [
+                  {
+                    "_type": "Descriptor",
+                    "_name": "\u0000",
+                    "_classID": "CrPt",
+                    "_ostype": "Objc",
+                    "Hrzn": 146.999,
+                    "Vrtc": 61.91
+                  },
+                  {
+                    "_type": "Descriptor",
+                    "_name": "\u0000",
+                    "_classID": "CrPt",
+                    "_ostype": "Objc",
+                    "Hrzn": 152.098,
+                    "Vrtc": 125.59
+                  }
+                ]
+              },
+              "Inpr": {
+                "_type": "UnitFloat",
+                "value": 20.728,
+                "unit": "#Prc"
+              }
+            },
+            "solidFillMulti": [
+              {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "SoFi",
+                "_ostype": "Objc",
+                "enab": true,
+                "present": true,
+                "showInDialog": false,
+                "Md": {
+                  "_type": "Enumerated",
+                  "typeID": "BlnM",
+                  "enum": "Nrml",
+                  "name": "Normal"
+                },
+                "Clr": {
+                  "_type": "Descriptor",
+                  "_name": "\u0000",
+                  "_classID": "RGBC",
+                  "_ostype": "Objc",
+                  "Rd": 46.519,
+                  "Grn": 215.593,
+                  "Bl": 211.114
+                },
+                "Opct": {
+                  "_type": "UnitFloat",
+                  "value": 60.048,
+                  "unit": "#Prc"
+                }
+              }
+            ],
+            "gradientFillMulti": [
+              {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "GrFl",
+                "_ostype": "Objc",
+                "enab": true,
+                "present": true,
+                "showInDialog": false,
+                "Md": {
+                  "_type": "Enumerated",
+                  "typeID": "BlnM",
+                  "enum": "Nrml",
+                  "name": "Normal"
+                },
+                "Opct": {
+                  "_type": "UnitFloat",
+                  "value": 36.773,
+                  "unit": "#Prc"
+                },
+                "Grad": {
+                  "_type": "Descriptor",
+                  "_name": "Gradient\u0000",
+                  "_classID": "Grdn",
+                  "_ostype": "Objc",
+                  "Nm": "PSDC_RANDOM_1YJIWZ4K",
+                  "GrdF": {
+                    "_type": "Enumerated",
+                    "typeID": "GrdF",
+                    "enum": "CstS",
+                    "name": "CustomStops"
+                  },
+                  "Intr": 201.356,
+                  "Clrs": [
+                    {
+                      "_type": "Descriptor",
+                      "_name": "\u0000",
+                      "_classID": "Clrt",
+                      "_ostype": "Objc",
+                      "Clr": {
+                        "_type": "Descriptor",
+                        "_name": "\u0000",
+                        "_classID": "RGBC",
+                        "_ostype": "Objc",
+                        "Rd": 233.468,
+                        "Grn": 77.024,
+                        "Bl": 125.879
+                      },
+                      "Type": {
+                        "_type": "Enumerated",
+                        "typeID": "Clry",
+                        "enum": "UsrS",
+                        "name": "UserStop"
+                      },
+                      "Lctn": 2079,
+                      "Mdpn": 14
+                    },
+                    {
+                      "_type": "Descriptor",
+                      "_name": "\u0000",
+                      "_classID": "Clrt",
+                      "_ostype": "Objc",
+                      "Clr": {
+                        "_type": "Descriptor",
+                        "_name": "\u0000",
+                        "_classID": "RGBC",
+                        "_ostype": "Objc",
+                        "Rd": 200.808,
+                        "Grn": 162.481,
+                        "Bl": 164.201
+                      },
+                      "Type": {
+                        "_type": "Enumerated",
+                        "typeID": "Clry",
+                        "enum": "UsrS",
+                        "name": "UserStop"
+                      },
+                      "Lctn": 2532,
+                      "Mdpn": 54
+                    }
+                  ],
+                  "Trns": [
+                    {
+                      "_type": "Descriptor",
+                      "_name": "\u0000",
+                      "_classID": "TrnS",
+                      "_ostype": "Objc",
+                      "Opct": {
+                        "_type": "UnitFloat",
+                        "value": 21.973,
+                        "unit": "#Prc"
+                      },
+                      "Lctn": 2919,
+                      "Mdpn": 18
+                    },
+                    {
+                      "_type": "Descriptor",
+                      "_name": "\u0000",
+                      "_classID": "TrnS",
+                      "_ostype": "Objc",
+                      "Opct": {
+                        "_type": "UnitFloat",
+                        "value": 82.049,
+                        "unit": "#Prc"
+                      },
+                      "Lctn": 1708,
+                      "Mdpn": 73
+                    }
+                  ]
+                },
+                "Angl": {
+                  "_type": "UnitFloat",
+                  "value": 2.568,
+                  "unit": "#Ang"
+                },
+                "Type": {
+                  "_type": "Enumerated",
+                  "typeID": "GrdT",
+                  "enum": "Lnr",
+                  "name": "Linear"
+                },
+                "Rvrs": true,
+                "Dthr": true,
+                "gs99": {
+                  "_type": "Enumerated",
+                  "typeID": "gradientInterpolationMethodType",
+                  "enum": "Smoo",
+                  "name": "b'Smoo'"
+                },
+                "Algn": false,
+                "Scl": {
+                  "_type": "UnitFloat",
+                  "value": 23.992,
+                  "unit": "#Prc"
+                },
+                "Ofst": {
+                  "_type": "Descriptor",
+                  "_name": "\u0000",
+                  "_classID": "Pnt",
+                  "_ostype": "Objc",
+                  "Hrzn": {
+                    "_type": "UnitFloat",
+                    "value": 93.851,
+                    "unit": "#Prc"
+                  },
+                  "Vrtc": {
+                    "_type": "UnitFloat",
+                    "value": 5.466,
+                    "unit": "#Prc"
+                  }
+                }
+              }
+            ],
+            "frameFXMulti": [
+              {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "FrFX",
+                "_ostype": "Objc",
+                "enab": true,
+                "present": true,
+                "showInDialog": false,
+                "Styl": {
+                  "_type": "Enumerated",
+                  "typeID": "FStl",
+                  "enum": "InsF",
+                  "name": "InsetFrame"
+                },
+                "PntT": {
+                  "_type": "Enumerated",
+                  "typeID": "FrFl",
+                  "enum": "SClr",
+                  "name": "SolidColor"
+                },
+                "Md": {
+                  "_type": "Enumerated",
+                  "typeID": "BlnM",
+                  "enum": "Nrml",
+                  "name": "Normal"
+                },
+                "Opct": {
+                  "_type": "UnitFloat",
+                  "value": 78.43,
+                  "unit": "#Prc"
+                },
+                "Sz": {
+                  "_type": "UnitFloat",
+                  "value": 74.323,
+                  "unit": "#Pxl"
+                },
+                "Clr": {
+                  "_type": "Descriptor",
+                  "_name": "\u0000",
+                  "_classID": "RGBC",
+                  "_ostype": "Objc",
+                  "Rd": 208.518,
+                  "Grn": 72.078,
+                  "Bl": 159.242
+                },
+                "overprint": true
+              }
+            ],
+            "IrGl": {
+              "_type": "Descriptor",
+              "_name": "\u0000",
+              "_classID": "IrGl",
+              "_ostype": "Objc",
+              "enab": true,
+              "present": true,
+              "showInDialog": false,
+              "Md": {
+                "_type": "Enumerated",
+                "typeID": "BlnM",
+                "enum": "Scrn",
+                "name": "Screen"
+              },
+              "Clr": {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "RGBC",
+                "_ostype": "Objc",
+                "Rd": 148.164,
+                "Grn": 47.87,
+                "Bl": 138.241
+              },
+              "Opct": {
+                "_type": "UnitFloat",
+                "value": 80.286,
+                "unit": "#Prc"
+              },
+              "GlwT": {
+                "_type": "Enumerated",
+                "typeID": "BETE",
+                "enum": "SfBL",
+                "name": "SoftMatte"
+              },
+              "Ckmt": {
+                "_type": "UnitFloat",
+                "value": 8.553,
+                "unit": "#Pxl"
+              },
+              "blur": {
+                "_type": "UnitFloat",
+                "value": 82.225,
+                "unit": "#Pxl"
+              },
+              "Nose": {
+                "_type": "UnitFloat",
+                "value": 85.748,
+                "unit": "#Prc"
+              },
+              "ShdN": {
+                "_type": "UnitFloat",
+                "value": 69.159,
+                "unit": "#Prc"
+              },
+              "AntA": true,
+              "TrnS": {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "ShpC",
+                "_ostype": "Objc",
+                "Nm": "PSDC_RANDOM_PGP909Z0",
+                "Crv": [
+                  {
+                    "_type": "Descriptor",
+                    "_name": "\u0000",
+                    "_classID": "CrPt",
+                    "_ostype": "Objc",
+                    "Hrzn": 243.849,
+                    "Vrtc": 109.113
+                  },
+                  {
+                    "_type": "Descriptor",
+                    "_name": "\u0000",
+                    "_classID": "CrPt",
+                    "_ostype": "Objc",
+                    "Hrzn": 227.121,
+                    "Vrtc": 74.171
+                  }
+                ]
+              },
+              "Inpr": {
+                "_type": "UnitFloat",
+                "value": 8.502,
+                "unit": "#Prc"
+              },
+              "glwS": {
+                "_type": "Enumerated",
+                "typeID": "IGSr",
+                "enum": "SrcE",
+                "name": "EdgeGlow"
+              }
+            },
+            "ebbl": {
+              "_type": "Descriptor",
+              "_name": "\u0000",
+              "_classID": "ebbl",
+              "_ostype": "Objc",
+              "enab": true,
+              "present": true,
+              "showInDialog": false,
+              "hglM": {
+                "_type": "Enumerated",
+                "typeID": "BlnM",
+                "enum": "Scrn",
+                "name": "Screen"
+              },
+              "hglC": {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "RGBC",
+                "_ostype": "Objc",
+                "Rd": 21.322,
+                "Grn": 149.477,
+                "Bl": 48.292
+              },
+              "hglO": {
+                "_type": "UnitFloat",
+                "value": 10.583,
+                "unit": "#Prc"
+              },
+              "sdwM": {
+                "_type": "Enumerated",
+                "typeID": "BlnM",
+                "enum": "Mltp",
+                "name": "Multiply"
+              },
+              "sdwC": {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "RGBC",
+                "_ostype": "Objc",
+                "Rd": 119.735,
+                "Grn": 245.881,
+                "Bl": 178.084
+              },
+              "sdwO": {
+                "_type": "UnitFloat",
+                "value": 69.996,
+                "unit": "#Prc"
+              },
+              "bvlT": {
+                "_type": "Enumerated",
+                "typeID": "bvlT",
+                "enum": "SfBL",
+                "name": "SoftMatte"
+              },
+              "bvlS": {
+                "_type": "Enumerated",
+                "typeID": "BESl",
+                "enum": "InrB",
+                "name": "InnerBevel"
+              },
+              "uglg": false,
+              "lagl": {
+                "_type": "UnitFloat",
+                "value": 144.414,
+                "unit": "#Ang"
+              },
+              "Lald": {
+                "_type": "UnitFloat",
+                "value": 229.171,
+                "unit": "#Ang"
+              },
+              "srgR": {
+                "_type": "UnitFloat",
+                "value": 91.992,
+                "unit": "#Prc"
+              },
+              "blur": {
+                "_type": "UnitFloat",
+                "value": 85.113,
+                "unit": "#Pxl"
+              },
+              "bvlD": {
+                "_type": "Enumerated",
+                "typeID": "BESs",
+                "enum": "In",
+                "name": "StampIn"
+              },
+              "TrnS": {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "ShpC",
+                "_ostype": "Objc",
+                "Nm": "PSDC_RANDOM_A8RCCQ1H",
+                "Crv": [
+                  {
+                    "_type": "Descriptor",
+                    "_name": "\u0000",
+                    "_classID": "CrPt",
+                    "_ostype": "Objc",
+                    "Hrzn": 180.471,
+                    "Vrtc": 31.87
+                  },
+                  {
+                    "_type": "Descriptor",
+                    "_name": "\u0000",
+                    "_classID": "CrPt",
+                    "_ostype": "Objc",
+                    "Hrzn": 209.691,
+                    "Vrtc": 227.429
+                  }
+                ]
+              },
+              "antialiasGloss": true,
+              "Sftn": {
+                "_type": "UnitFloat",
+                "value": 15.077,
+                "unit": "#Pxl"
+              },
+              "useShape": true,
+              "useTexture": true
+            },
+            "ChFX": {
+              "_type": "Descriptor",
+              "_name": "\u0000",
+              "_classID": "ChFX",
+              "_ostype": "Objc",
+              "enab": true,
+              "present": true,
+              "showInDialog": false,
+              "Md": {
+                "_type": "Enumerated",
+                "typeID": "BlnM",
+                "enum": "Mltp",
+                "name": "Multiply"
+              },
+              "Clr": {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "RGBC",
+                "_ostype": "Objc",
+                "Rd": 126.667,
+                "Grn": 132.413,
+                "Bl": 138.078
+              },
+              "AntA": false,
+              "Invr": false,
+              "Opct": {
+                "_type": "UnitFloat",
+                "value": 90.311,
+                "unit": "#Prc"
+              },
+              "lagl": {
+                "_type": "UnitFloat",
+                "value": 100.145,
+                "unit": "#Ang"
+              },
+              "Dstn": {
+                "_type": "UnitFloat",
+                "value": 13.488,
+                "unit": "#Pxl"
+              },
+              "blur": {
+                "_type": "UnitFloat",
+                "value": 66.628,
+                "unit": "#Pxl"
+              },
+              "MpgS": {
+                "_type": "Descriptor",
+                "_name": "\u0000",
+                "_classID": "ShpC",
+                "_ostype": "Objc",
+                "Nm": "PSDC_RANDOM_40M9JSG7",
+                "Crv": [
+                  {
+                    "_type": "Descriptor",
+                    "_name": "\u0000",
+                    "_classID": "CrPt",
+                    "_ostype": "Objc",
+                    "Hrzn": 43.789,
+                    "Vrtc": 220.355
+                  },
+                  {
+                    "_type": "Descriptor",
+                    "_name": "\u0000",
+                    "_classID": "CrPt",
+                    "_ostype": "Objc",
+                    "Hrzn": 142.418,
+                    "Vrtc": 203.229
+                  }
+                ]
+              }
+            },
+            "numModifyingFX": 228
+          },
+          "EFFECTS_LAYER": {
+            "_type": "EffectsLayer",
+            "_version": 0,
+            "cmnS": {
+              "_type": "CommonStateInfo",
+              "version": 0,
+              "visible": 204
+            },
+            "dsdw": {
+              "_type": "ShadowInfo",
+              "angle": 73,
+              "blend_mode": "mul",
+              "blur": 58,
+              "distance": 43,
+              "enabled": 102,
+              "intensity": 46,
+              "opacity": 56,
+              "use_global_angle": 232,
+              "version": 2
+            },
+            "isdw": {
+              "_type": "ShadowInfo",
+              "angle": 227,
+              "blend_mode": "mul",
+              "blur": 59,
+              "distance": 47,
+              "enabled": 95,
+              "intensity": 214,
+              "opacity": 72,
+              "use_global_angle": 12,
+              "version": 2
+            },
+            "oglw": {
+              "_type": "OuterGlowInfo",
+              "blend_mode": "scrn",
+              "blur": 20,
+              "enabled": 179,
+              "intensity": 11,
+              "opacity": 95,
+              "version": 2
+            },
+            "iglw": {
+              "_type": "InnerGlowInfo",
+              "blend_mode": "scrn",
+              "blur": 37,
+              "enabled": 69,
+              "intensity": 140,
+              "invert": 99,
+              "opacity": 216,
+              "version": 2
+            },
+            "bevl": {
+              "_type": "BevelInfo",
+              "angle": 107,
+              "bevel_style": 76,
+              "blur": 79,
+              "depth": 4,
+              "direction": 40,
+              "enabled": 25,
+              "highlight_blend_mode": "scrn",
+              "highlight_opacity": 250,
+              "shadow_blend_mode": "mul",
+              "shadow_opacity": 38,
+              "use_global_angle": 244,
+              "version": 2
+            },
+            "sofi": {
+              "_type": "SolidFillInfo",
+              "blend_mode": "norm",
+              "enabled": 49,
+              "opacity": 19,
+              "version": 2
+            }
+          }
+        }
+      }
+    },
+    {
+      "op": "set_opacity",
+      "target": {
+        "id": 30
+      },
+      "value": 48
+    },
+    {
+      "op": "set_fill_opacity",
+      "target": {
+        "id": 30
+      },
+      "value": 148
+    },
+    {
+      "op": "set_blend_mode",
+      "target": {
+        "id": 30
+      },
+      "value": "SOFT_LIGHT"
+    },
+    {
+      "op": "replace_text",
+      "target": {
+        "id": 30
+      },
+      "value": "Randomized PSDC 0953",
+      "style": {
+        "font_size": 114,
+        "color": "#8856ed",
+        "alignment": "left",
+        "tracking": 41,
+        "leading": 72,
+        "faux_bold": false,
+        "faux_italic": false
+      }
+    }
+  ]
+}

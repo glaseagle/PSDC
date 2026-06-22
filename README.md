@@ -493,6 +493,7 @@ Per-feature validation workflows are included under `workflows/`. Each validatio
 - requested duplicate-name targeting
 - requested effector raster stack preservation
 - requested full-feature JSON recreation
+- requested randomize all adjustable parameters
 - existing native mask export
 - existing image composite PSD
 - existing image-to-PSD

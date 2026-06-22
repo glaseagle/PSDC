@@ -1,0 +1,94 @@
+{
+  "ok": true,
+  "feature": "requested_randomize_all_adjustable_parameters",
+  "prompt_id": "2ca1a034-2114-4409-b1a7-e644e362eb1f",
+  "status": "success",
+  "source_file": "psdc_pad_full_feature_test.psd",
+  "seed": 8675309,
+  "operation_count": 101,
+  "layer_metadata_operations": 81,
+  "adjustment_operations": 18,
+  "effect_operations": 1,
+  "text_operations": 1,
+  "descriptor_scalar_parameters": 659,
+  "skipped_adjustment_tags_without_safe_parameters": [
+    {
+      "layer": "Color Lookup 1",
+      "tag": "COLOR_LOOKUP"
+    },
+    {
+      "layer": "Invert 1",
+      "tag": "INVERT"
+    }
+  ],
+  "document_size": [
+    1920,
+    1080
+  ],
+  "layer_count": 27,
+  "top_level_count": 27,
+  "layer_names": [
+    "Background",
+    "Color and vibrance 1",
+    "Clarity and dehaze 1",
+    "Grain 1",
+    "Brightness/Contrast 1",
+    "Levels 1",
+    "Curves 1",
+    "Exposure 1",
+    "Hue/Saturation 1",
+    "Color Balance 1",
+    "Black & White 1",
+    "Photo Filter 1",
+    "Channel Mixer 1",
+    "Color Lookup 1",
+    "Selective Color 1",
+    "Invert 1",
+    "Posterize 1",
+    "Threshold 1",
+    "Gradient Map 1",
+    "Color Fill 1",
+    "Gradient Fill 1",
+    "Pattern Fill 1",
+    "Color Fill 2",
+    "Color Fill 3",
+    "Color Fill 4",
+    "Color Fill 5",
+    "Lorem Ipsum"
+  ],
+  "layer_kinds": [
+    "pixel",
+    "vibrance",
+    "pixel",
+    "pixel",
+    "brightnesscontrast",
+    "levels",
+    "curves",
+    "exposure",
+    "huesaturation",
+    "colorbalance",
+    "blackandwhite",
+    "photofilter",
+    "channelmixer",
+    "colorlookup",
+    "selectivecolor",
+    "invert",
+    "posterize",
+    "threshold",
+    "gradientmap",
+    "solidcolorfill",
+    "gradientfill",
+    "patternfill",
+    "smartobject",
+    "smartobject",
+    "smartobject",
+    "solidcolorfill",
+    "type"
+  ],
+  "text_values": [
+    "Randomized PSDC 0953"
+  ],
+  "produced_files": [
+    "requested_randomize_all_adjustable_parameters_00001_.psd"
+  ]
+}

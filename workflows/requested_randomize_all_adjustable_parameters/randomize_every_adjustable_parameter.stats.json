@@ -1,0 +1,21 @@
+{
+  "seed": 8675309,
+  "source_file": "psdc_pad_full_feature_test.psd",
+  "layer_count": 27,
+  "layer_metadata_operations": 81,
+  "adjustment_operations": 18,
+  "effect_operations": 1,
+  "text_operations": 1,
+  "skipped_adjustment_tags_without_safe_parameters": [
+    {
+      "layer": "Color Lookup 1",
+      "tag": "COLOR_LOOKUP"
+    },
+    {
+      "layer": "Invert 1",
+      "tag": "INVERT"
+    }
+  ],
+  "operation_count": 101,
+  "descriptor_scalar_parameters": 659
+}
