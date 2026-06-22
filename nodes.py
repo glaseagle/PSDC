@@ -2710,7 +2710,7 @@ def native_tag_lookup(tagged_blocks):
     return lookup
 
 
-def patch_native_layer_tags(layer, layer_info):
+def patch_native_layer_tags(layer, layer_info, categories=("adjustments", "effect_descriptors", "descriptors")):
     tagged_blocks = getattr(layer, "tagged_blocks", None)
     if not tagged_blocks:
         return 0
@@ -2718,7 +2718,7 @@ def patch_native_layer_tags(layer, layer_info):
     tags_by_name = native_tag_lookup(tagged_blocks)
     changed_count = 0
 
-    for category in ("adjustments", "effect_descriptors", "descriptors"):
+    for category in categories:
         category_updates = layer_info.get(category)
         if not isinstance(category_updates, dict):
             continue
@@ -2909,6 +2909,12 @@ ADJUSTMENT_PATCH_TAGS = {
     "posterize": "POSTERIZE",
     "threshold": "THRESHOLD",
     "gradient_map": "GRADIENT_MAP",
+    "gradient_fill": "GRADIENT_FILL_SETTING",
+    "gradient_fill_setting": "GRADIENT_FILL_SETTING",
+    "gradientfill": "GRADIENT_FILL_SETTING",
+    "pattern_fill": "PATTERN_FILL_SETTING",
+    "pattern_fill_setting": "PATTERN_FILL_SETTING",
+    "patternfill": "PATTERN_FILL_SETTING",
     "solid_color": "SOLID_COLOR_SHEET_SETTING",
     "solid_color_fill": "SOLID_COLOR_SHEET_SETTING",
 }
@@ -4554,7 +4560,12 @@ def clone_native_prototype_layer(layer_info, prototype_lookup, layer_id):
     assign_native_layer_id(layer, layer_id)
     patch_native_layer_metadata(layer, layer_info)
     position_native_layer_from_info(layer, layer_info)
-    patch_native_layer_tags(layer, layer_info)
+    # Raw descriptor JSON is useful for LLM targeting, but not every Photoshop
+    # descriptor can be losslessly reconstructed from JSON. Type and placed-layer
+    # descriptors in particular can contain bytes payloads that psd-tools expects
+    # to remain binary. Adjustment and effect descriptors are the supported native
+    # patch surface here; text contents are applied through EngineData helpers.
+    patch_native_layer_tags(layer, layer_info, categories=("adjustments", "effect_descriptors"))
     apply_text_layer_info(layer, layer_info)
     return layer
 
@@ -4575,6 +4586,38 @@ def create_group_from_layer_info(parent, layer_info):
     group = psd_layers.Group.new(parent=parent, name=structure_layer_name(layer_info, "Group"), open_folder=True)
     patch_native_layer_metadata(group, layer_info)
     return group
+
+
+def parent_psd_document(parent):
+    return getattr(parent, "_psd", None) or parent
+
+
+def create_blank_native_pixel_layer_from_info(parent, layer_info):
+    psd = parent_psd_document(parent)
+    document_width = int(getattr(psd, "width", DEFAULT_NATIVE_DOCUMENT_SIZE))
+    document_height = int(getattr(psd, "height", DEFAULT_NATIVE_DOCUMENT_SIZE))
+    left, top, right, bottom = structure_layer_bbox(layer_info, document_width, document_height)
+    width = max(1, min(MAX_RESOLUTION, right - left))
+    height = max(1, min(MAX_RESOLUTION, bottom - top))
+    image = Image.new("RGBA", (int(width), int(height)), (0, 0, 0, 0))
+    name = structure_layer_name(layer_info, "Blank Layer")
+
+    try:
+        blend_mode = parse_blend_mode(layer_info.get("blend_mode", "norm"))
+    except Exception:
+        blend_mode = BlendMode.NORMAL
+
+    layer = psd_layers.PixelLayer.frompil(
+        image,
+        parent=parent,
+        name=name,
+        top=int(top),
+        left=int(left),
+    )
+    layer.opacity = opacity_to_native_value(layer_info.get("opacity", 255))
+    layer.blend_mode = blend_mode
+    patch_native_layer_metadata(layer, layer_info)
+    return layer
 
 
 def create_native_layers_from_structure_items(
@@ -4640,11 +4683,18 @@ def create_native_layers_from_structure_items(
             continue
 
         if not layer_info_has_native_prototype_payload(layer_info):
+            layer = create_blank_native_pixel_layer_from_info(parent, layer_info)
+            assign_native_layer_id(layer, next_layer_id)
+            next_layer_id += 1
+            created_layers += 1
             continue
 
         layer = clone_native_prototype_layer(layer_info, prototype_lookup, next_layer_id)
         if layer is None:
-            skipped_layers += 1
+            layer = create_blank_native_pixel_layer_from_info(parent, layer_info)
+            assign_native_layer_id(layer, next_layer_id)
+            next_layer_id += 1
+            created_layers += 1
             continue
 
         next_layer_id += 1

@@ -252,7 +252,7 @@ Native duplicate/move/reorder/translate operations preserve the native Photoshop
 
 Native text replacement supports single-style and multi-style Photoshop type layers, plus text inside embedded PSD/PSB smart objects. It updates the text descriptor, EngineData text, and EngineData style/paragraph run lengths. Optional style fields on `replace_text` and `create_text` include `font_size`, `color`, `alignment`, `tracking`, `leading`, `faux_bold`, and `faux_italic`. Font family changes are applied only when the requested font already exists in that layer's Photoshop FontSet.
 
-Native layer creation uses PSDC's bundled Photoshop prototype library. `create_adjustment` can instantiate editable adjustment/fill layers such as Curves, Levels, Hue/Saturation, Solid Color Fill, Gradient Map, Vibrance, Exposure, and the other bundled prototypes. `create_effect_layer` can instantiate editable effect-bearing pixel layers for Drop Shadow, Inner Shadow, Outer Glow, Inner Glow, Stroke, and Bevel/Emboss. `create_text` can instantiate an editable single-style-run type layer. Common semantic fields are supported, and `raw` / `raw_descriptors` can be used for descriptor-level control.
+Native layer creation uses PSDC's bundled Photoshop prototype library. `create_adjustment` can instantiate editable adjustment/fill layers such as Curves, Levels, Hue/Saturation, Solid Color Fill, Gradient Fill, Pattern Fill, Gradient Map, Vibrance, Exposure, and the other bundled prototypes. `create_effect_layer` can instantiate editable effect-bearing pixel layers for Drop Shadow, Inner Shadow, Outer Glow, Inner Glow, Stroke, and Bevel/Emboss. `create_text` can instantiate an editable single-style-run type layer. Common semantic fields are supported, and `raw` / `raw_descriptors` can be used for descriptor-level control.
 
 Example Effector patch:
 
@@ -307,7 +307,7 @@ Outputs:
 - `image`: Flattened preview image.
 - `psd`: PSDC `PSD` stack with a native passthrough source.
 
-With `psd` connected, the decoder applies the JSON to the original native Photoshop structure and pairs layers by ID, index path, full layer path, then name. Without `psd`, JSON has no pixel data, so the decoder creates a blank native document and instantiates editable type layers, adjustment/fill layers, and effect layers from PSDC's prototypes. Pixel-only layers without native descriptor data remain blank preview layers because the JSON does not contain pixels.
+With `psd` connected, the decoder applies the JSON to the original native Photoshop structure and pairs layers by ID, index path, full layer path, then name. Without `psd`, JSON has no pixel data, so the decoder creates a blank native document and instantiates editable type layers, adjustment/fill layers, and effect layers from PSDC's prototypes. Pixel-only or smart-object layers without native descriptor data become transparent blank raster placeholders because the JSON does not contain pixels or embedded smart-object binaries.
 
 ### PSDC Preview PSD
 
@@ -492,6 +492,7 @@ Per-feature validation workflows are included under `workflows/`. Each validatio
 - requested preview refresh metadata
 - requested duplicate-name targeting
 - requested effector raster stack preservation
+- requested full-feature JSON recreation
 - existing native mask export
 - existing image composite PSD
 - existing image-to-PSD

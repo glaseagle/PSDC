@@ -1,0 +1,41 @@
+{
+  "1": {
+    "class_type": "PSDC Load PSD",
+    "inputs": {
+      "psd_file": "psdc_pad_full_feature_test.psd"
+    }
+  },
+  "2": {
+    "class_type": "PSDC PSD Encoder",
+    "inputs": {
+      "psd": [
+        "1",
+        0
+      ],
+      "pretty": true
+    }
+  },
+  "3": {
+    "class_type": "PSDC PSD Decoder",
+    "inputs": {
+      "json_text": [
+        "2",
+        0
+      ],
+      "batch_size": 1
+    }
+  },
+  "4": {
+    "class_type": "PSDC Save PSD",
+    "inputs": {
+      "psd": [
+        "3",
+        1
+      ],
+      "filename_prefix": "PSDC_Validation/requested_full_feature_json_recreation/requested_full_feature_json_recreation",
+      "file_mode": "single_file",
+      "alpha_name": "_mask_",
+      "alpha_name_mode": "suffix"
+    }
+  }
+}
