@@ -1,19 +1,63 @@
 # PSDC
 
 ![ComfyUI custom node](https://img.shields.io/badge/ComfyUI-custom%20node-46a2ff)
+![Native PSD editor](https://img.shields.io/badge/Photoshop-native%20PSD%20editor-31a8ff)
+![LLM JSON edits](https://img.shields.io/badge/LLM-JSON%20PSD%20edits-8a63ff)
 ![Photoshop PSD](https://img.shields.io/badge/Photoshop-PSD%20layers-31a8ff)
 ![Native masks](https://img.shields.io/badge/masks-native%20layer%20masks-44cc88)
 ![License MIT](https://img.shields.io/badge/license-MIT-black)
 
-PSDC is a ComfyUI custom node pack for saving image batches and non-destructive composite stacks as layered Photoshop PSD files with native layer masks.
+PSDC is a native Photoshop PSD editor for ComfyUI. It loads real `.psd` files, exposes their layer structure as LLM-readable JSON, applies JSON edit scripts back onto native Photoshop documents, and keeps the normal ComfyUI flat `IMAGE` path in parity with a parallel editable `PSD` path.
 
-Save ComfyUI image batches as real layered PSD files. This fork keeps the lean Save PSD node set and upgrades the Photoshop handoff: alpha channels are written as native layer masks on their matching pixel layers.
+Layer-mask export was the starting point. The current focus is broader: AI-generated PSDs with native layer masks, editable text, editable adjustment/fill layers, blend modes, layer effects, groups, and preservation of uploaded Photoshop documents while ComfyUI adds or composites new layers.
 
-Open the exported PSD in Photoshop and you get a clean stack of visible layers, each with its mask already attached. No hidden mask layers, no post-export script, no manual channel paste ritual.
+The goal is to make ComfyUI a production PSD pipeline: generate a flat preview image for the rest of the graph, while also producing a non-destructive PSD that can be opened and continued in Photoshop.
 
-## What This Fork Adds
+## Main PSD Editing Workflow
 
-The original `D2 Save PSD` node exported alpha channels as separate hidden pixel layers. This fork uses `psd-tools` layer mask support so each RGBA image becomes one Photoshop layer with one attached pixel mask.
+The main native editing path is:
+
+```mermaid
+flowchart LR
+    A["PSDC Load PSD"] --> B["PSDC PSD Encoder"]
+    B --> C["LLM target planner"]
+    C --> D["LLM JSON writer"]
+    A --> E["PSDC PSD Effector"]
+    D --> E
+    E --> F["Flat IMAGE preview"]
+    E --> G["Native editable PSD"]
+    G --> H["PSDC Preview PSD / Save PSD"]
+```
+
+The direct create-from-text path is also supported:
+
+```text
+prompt -> LLM JSON writer -> PSDC PSD Effector -> IMAGE + editable PSD
+```
+
+For image generation and compositing, `PSDC Image Composite PSD`, `PSDC Image To PSD`, and `PSDC PSD Layer Combine` keep adding raster image/mask layers to the same carried `PSD` track while the graph continues to use the normal flattened `IMAGE` output.
+
+## Native PSD Editing Contract
+
+PSDC is now centered on native PSD editing, not only PSD export. The current supported contract is:
+
+| Area | Supported now | Notes |
+| --- | --- | --- |
+| Layer targeting | Existing layers can be targeted by Photoshop layer ID, index path, full layer path, or unique name. | The encoder emits these fields so LLM patches can point at the right layer. ID is preferred. |
+| Text | Create editable single-style text layers. Replace text in direct Photoshop type layers and in embedded PSD/PSB smart-object text layers. | Text replacement supports single-style-run type layers. Multi-style text is detected and rejected instead of being corrupted. |
+| Adjustment/fill layers | Create native editable adjustment/fill layers from PSDC's prototype library. Edit existing adjustment layers when their native descriptor/tag is exposed. | Curves and common raw adjustment descriptors are the strongest path. For exact Photoshop controls, use `raw` data copied from the encoder JSON. |
+| Blend/compositing metadata | Set layer name, visibility, opacity, fill opacity, blend mode, and clipping. | Blend modes are written back as native Photoshop blend modes. |
+| Effects | Create native editable effect-bearing pixel layers for Drop Shadow, Inner Shadow, Outer Glow, Inner Glow, Stroke, and Bevel/Emboss. Edit existing effects when raw effect descriptors are exposed. | New effects support common semantic fields such as opacity, distance, size, color, angle, spread, choke, noise, and depth. Existing effect edits are safest with `raw_descriptors` copied from the encoder JSON; arbitrary semantic Photoshop effect editing is not fully generalized yet. |
+| Groups | Create groups and insert created native layers into the document root or a targeted group. | Existing group structure is preserved when editing uploaded PSDs. |
+| Masks and raster layers | Convert ComfyUI images and masks into PSD pixel layers with native pixel masks. Batch images/masks become multiple layers. | Mask export remains fully supported, but it is now one capability inside the broader PSD editor. |
+| Uploaded PSD preservation | Loaded PSDs keep native Photoshop context while PSDC adds new raster, mask, composite, effect, adjustment, text, or group layers. | Save paths preserve original groups, adjustment layers, effects, fill layers, masks, smart objects, and editable text wherever PSDC does not explicitly patch them. |
+| JSON-only generation | The Effector can generate a native PSD from JSON without a source PSD. | With no PSD connected, set-style edits such as `set_adjustment`, `set_effect`, and `replace_text` are interpreted as create-style operations on blank/native prototype layers. |
+
+This is not intended to be a blind rasterizer. The useful behavior is native editability: Photoshop should still see real type layers, real adjustment/fill layers, native layer effects, native masks, and preserved source PSD structure where those features are supported by the current operation set.
+
+## Mask Export Foundation
+
+The original `D2 Save PSD` node exported alpha channels as separate hidden pixel layers. PSDC uses `psd-tools` layer mask support so each RGBA image becomes one Photoshop layer with one attached pixel mask.
 
 ```mermaid
 flowchart LR
@@ -27,7 +71,7 @@ flowchart LR
     G --> F
 ```
 
-For multi-layer PSDs, either batch RGBA images before `PSDC Save PSD`, or use `PSDC Image Composite PSD` as a drop-in-style composite node that carries a parallel `PSD` stack beside the normal flat `IMAGE`.
+For multi-layer PSDs, either batch RGBA images before `PSDC Save PSD`, or use `PSDC Image Composite PSD` as a composite node that carries a parallel `PSD` stack beside the normal flat `IMAGE`.
 
 ## Attribution
 
