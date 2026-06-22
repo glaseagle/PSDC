@@ -1,0 +1,75 @@
+{
+  "1": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 160,
+      "height": 120,
+      "batch_size": 1,
+      "color": 16711935
+    }
+  },
+  "2": {
+    "class_type": "SolidMask",
+    "inputs": {
+      "value": 1.0,
+      "width": 160,
+      "height": 120
+    }
+  },
+  "3": {
+    "class_type": "PSDC Apply Alpha Channel",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "2",
+        0
+      ],
+      "invert_mask": false,
+      "x": 0,
+      "y": 0,
+      "offset_x": 0,
+      "offset_y": 0
+    }
+  },
+  "4": {
+    "class_type": "PSDC Extract Alpha",
+    "inputs": {
+      "image": [
+        "3",
+        0
+      ]
+    }
+  },
+  "5": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "4",
+        1
+      ],
+      "filename_prefix": "PSDC_Validation/existing_extract_alpha/extracted_image"
+    }
+  },
+  "6": {
+    "class_type": "MaskToImage",
+    "inputs": {
+      "mask": [
+        "4",
+        0
+      ]
+    }
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "6",
+        0
+      ],
+      "filename_prefix": "PSDC_Validation/existing_extract_alpha/extracted_mask"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "byte_for_byte_match": true,
+  "source_sha256": "1b89e13e081c87d85ae520d5ab0aebde8a7d01b441e7a53aecf3e6f5ea77ab8d",
+  "output_sha256": "1b89e13e081c87d85ae520d5ab0aebde8a7d01b441e7a53aecf3e6f5ea77ab8d",
+  "feature": "existing_load_save_preserve",
+  "prompt_id": "31e3176e-faf0-42db-92bd-bd2fc4df7d22",
+  "status": "success",
+  "produced_files": [
+    "existing_load_save_preserve_00001_.psd"
+  ]
+}

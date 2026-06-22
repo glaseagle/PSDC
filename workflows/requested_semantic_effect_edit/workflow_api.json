@@ -1,0 +1,19 @@
+{
+  "1": {
+    "class_type": "PSDC Load PSD",
+    "inputs": {
+      "psd_file": "psdc_validation_effect_source.psd"
+    }
+  },
+  "2": {
+    "class_type": "PSDC PSD Effector",
+    "inputs": {
+      "edit_json": "{\"schema\": \"psdc.native_patch.v1\", \"operations\": [{\"op\": \"set_effect\", \"target\": {\"id\": 1}, \"effect\": \"drop_shadow\", \"value\": {\"opacity\": 76, \"distance\": 24, \"size\": 34, \"angle\": 120, \"color\": \"#ff3300\"}}]}",
+      "filename_prefix": "PSDC_Validation/requested_semantic_effect_edit/requested_semantic_effect_edit",
+      "psd": [
+        "1",
+        0
+      ]
+    }
+  }
+}

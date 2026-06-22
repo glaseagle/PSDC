@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "layer_count": 2,
+  "mask_bboxes": [
+    [
+      40,
+      50,
+      120,
+      110
+    ]
+  ],
+  "feature": "existing_image_composite_psd",
+  "prompt_id": "dc90155c-c910-4fd3-8517-7ba5169a3ab8",
+  "status": "success",
+  "produced_files": [
+    "existing_image_composite_psd_00001_.psd"
+  ]
+}

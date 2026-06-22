@@ -1,0 +1,21 @@
+{
+  "1": {
+    "class_type": "PSDC Load PSD",
+    "inputs": {
+      "psd_file": "psdc_validation_text_source.psd"
+    }
+  },
+  "2": {
+    "class_type": "PSDC Save PSD",
+    "inputs": {
+      "psd": [
+        "1",
+        0
+      ],
+      "filename_prefix": "PSDC_Validation/existing_load_save_preserve/existing_load_save_preserve",
+      "file_mode": "single_file",
+      "alpha_name": "_mask_",
+      "alpha_name_mode": "suffix"
+    }
+  }
+}

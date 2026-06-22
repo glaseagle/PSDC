@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "applied": 4,
+  "duplicated_bbox": [
+    210,
+    210,
+    1828,
+    321
+  ],
+  "layer_names": [
+    "Comfy Text Example Background",
+    "Duplicated Text",
+    "Validation Group",
+    "Comfy Editable Text"
+  ],
+  "feature": "requested_native_layer_operations",
+  "prompt_id": "a23e58fd-7a22-477f-93f6-791a5540743f",
+  "status": "success",
+  "produced_files": [
+    "requested_native_layer_operations_00001_.psd"
+  ]
+}

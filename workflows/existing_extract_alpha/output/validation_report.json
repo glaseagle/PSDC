@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "png_count": 2,
+  "png_files": [
+    "extracted_image_00001_.png",
+    "extracted_mask_00001_.png"
+  ],
+  "feature": "existing_extract_alpha",
+  "prompt_id": "c5c8b81f-02a1-47dd-b64c-d8adce6e27a7",
+  "status": "success",
+  "produced_files": [
+    "extracted_image_00001_.png",
+    "extracted_mask_00001_.png"
+  ]
+}

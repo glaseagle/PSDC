@@ -1,0 +1,19 @@
+{
+  "1": {
+    "class_type": "PSDC Load PSD",
+    "inputs": {
+      "psd_file": "psdc_validation_multistyle_source.psd"
+    }
+  },
+  "2": {
+    "class_type": "PSDC PSD Effector",
+    "inputs": {
+      "edit_json": "{\"schema\": \"psdc.native_patch.v1\", \"operations\": [{\"op\": \"replace_text\", \"target\": {\"id\": 1}, \"value\": \"Changed Multi Style Text\", \"style\": {\"tracking\": 40}}]}",
+      "filename_prefix": "PSDC_Validation/requested_multi_style_text_replacement/requested_multi_style_text_replacement",
+      "psd": [
+        "1",
+        0
+      ]
+    }
+  }
+}

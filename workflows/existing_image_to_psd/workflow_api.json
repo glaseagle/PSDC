@@ -1,0 +1,45 @@
+{
+  "1": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 128,
+      "height": 96,
+      "batch_size": 1,
+      "color": 65280
+    }
+  },
+  "2": {
+    "class_type": "SolidMask",
+    "inputs": {
+      "value": 1.0,
+      "width": 128,
+      "height": 96
+    }
+  },
+  "3": {
+    "class_type": "PSDC Image To PSD",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ],
+      "mask": [
+        "2",
+        0
+      ]
+    }
+  },
+  "4": {
+    "class_type": "PSDC Save PSD",
+    "inputs": {
+      "psd": [
+        "3",
+        1
+      ],
+      "filename_prefix": "PSDC_Validation/existing_image_to_psd/existing_image_to_psd",
+      "file_mode": "single_file",
+      "alpha_name": "_mask_",
+      "alpha_name_mode": "suffix"
+    }
+  }
+}

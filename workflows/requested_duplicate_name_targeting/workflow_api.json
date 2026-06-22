@@ -1,0 +1,19 @@
+{
+  "1": {
+    "class_type": "PSDC Load PSD",
+    "inputs": {
+      "psd_file": "psdc_validation_duplicate_names_source.psd"
+    }
+  },
+  "2": {
+    "class_type": "PSDC PSD Effector",
+    "inputs": {
+      "edit_json": "{\"schema\": \"psdc.native_patch.v1\", \"operations\": [{\"op\": \"rename_layer\", \"target\": {\"name\": \"Repeated Name\"}, \"value\": \"Should Fail Ambiguous\"}, {\"op\": \"rename_layer\", \"target\": {\"id\": 2}, \"value\": \"ID Targeted Rename\"}]}",
+      "filename_prefix": "PSDC_Validation/requested_duplicate_name_targeting/requested_duplicate_name_targeting",
+      "psd": [
+        "1",
+        0
+      ]
+    }
+  }
+}

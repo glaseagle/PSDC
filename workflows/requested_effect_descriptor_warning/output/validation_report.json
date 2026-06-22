@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "failed": 1,
+  "failure_message": "Target layer has no editable effect descriptor block.",
+  "feature": "requested_effect_descriptor_warning",
+  "prompt_id": "4db333c9-e919-4e93-840f-565d3a480f96",
+  "status": "success",
+  "produced_files": [
+    "requested_effect_descriptor_warning_00001_.psd"
+  ]
+}

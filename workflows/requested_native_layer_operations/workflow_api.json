@@ -1,0 +1,19 @@
+{
+  "1": {
+    "class_type": "PSDC Load PSD",
+    "inputs": {
+      "psd_file": "psdc_validation_text_source.psd"
+    }
+  },
+  "2": {
+    "class_type": "PSDC PSD Effector",
+    "inputs": {
+      "edit_json": "{\"schema\": \"psdc.native_patch.v1\", \"operations\": [{\"op\": \"duplicate_layer\", \"target\": {\"id\": 2}, \"name\": \"Duplicated Text\", \"dx\": 40, \"dy\": 40}, {\"op\": \"create_group\", \"name\": \"Validation Group\"}, {\"op\": \"move_layer\", \"target\": {\"id\": 2}, \"parent\": {\"name\": \"Validation Group\"}, \"index\": 0}, {\"op\": \"translate_layer\", \"target\": {\"name\": \"Duplicated Text\"}, \"dx\": 20, \"dy\": 10}]}",
+      "filename_prefix": "PSDC_Validation/requested_native_layer_operations/requested_native_layer_operations",
+      "psd": [
+        "1",
+        0
+      ]
+    }
+  }
+}

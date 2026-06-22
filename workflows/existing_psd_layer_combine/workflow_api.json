@@ -1,0 +1,64 @@
+{
+  "1": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 96,
+      "height": 96,
+      "batch_size": 1,
+      "color": 16711680
+    }
+  },
+  "2": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 96,
+      "height": 96,
+      "batch_size": 1,
+      "color": 65280
+    }
+  },
+  "3": {
+    "class_type": "PSDC Image To PSD",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ]
+    }
+  },
+  "4": {
+    "class_type": "PSDC Image To PSD",
+    "inputs": {
+      "image": [
+        "2",
+        0
+      ]
+    }
+  },
+  "5": {
+    "class_type": "PSDC PSD Layer Combine",
+    "inputs": {
+      "psds.psd0": [
+        "3",
+        1
+      ],
+      "psds.psd1": [
+        "4",
+        1
+      ]
+    }
+  },
+  "6": {
+    "class_type": "PSDC Save PSD",
+    "inputs": {
+      "psd": [
+        "5",
+        1
+      ],
+      "filename_prefix": "PSDC_Validation/existing_psd_layer_combine/existing_psd_layer_combine",
+      "file_mode": "single_file",
+      "alpha_name": "_mask_",
+      "alpha_name_mode": "suffix"
+    }
+  }
+}

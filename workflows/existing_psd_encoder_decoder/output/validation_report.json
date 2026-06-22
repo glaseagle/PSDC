@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "layer_names": [
+    "Comfy Text Example Background",
+    "Comfy Editable Text"
+  ],
+  "feature": "existing_psd_encoder_decoder",
+  "prompt_id": "689c7137-95a6-4554-8249-9c69e96b2876",
+  "status": "success",
+  "produced_files": [
+    "existing_psd_encoder_decoder_00001_.psd"
+  ]
+}

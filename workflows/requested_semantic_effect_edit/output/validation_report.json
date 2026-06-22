@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "applied": 1,
+  "effect_descriptor_tags": [
+    "EFFECTS_LAYER",
+    "OBJECT_BASED_EFFECTS_LAYER_INFO"
+  ],
+  "feature": "requested_semantic_effect_edit",
+  "prompt_id": "5ed23b46-df52-492a-b592-06fa21c5b22d",
+  "status": "success",
+  "produced_files": [
+    "requested_semantic_effect_edit_00001_.psd"
+  ]
+}

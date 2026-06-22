@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "failed_message": "Layer name 'Repeated Name' is ambiguous; use id or index_path.",
+  "layer_names": [
+    "Repeated Name",
+    "ID Targeted Rename"
+  ],
+  "feature": "requested_duplicate_name_targeting",
+  "prompt_id": "0f890c89-1d0d-45f0-959b-421409816aa6",
+  "status": "success",
+  "produced_files": [
+    "requested_duplicate_name_targeting_00001_.psd"
+  ]
+}

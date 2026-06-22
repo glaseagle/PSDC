@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "layer_count": 1,
+  "mask_bbox": [
+    30,
+    40,
+    110,
+    100
+  ],
+  "feature": "existing_native_mask_export",
+  "prompt_id": "c29a3512-1a42-4140-8689-4d900050587d",
+  "status": "success",
+  "produced_files": [
+    "existing_native_mask_export_00001_.psd"
+  ]
+}

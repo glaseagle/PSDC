@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "layer_count": 2,
+  "layer_names": [
+    "Layer 1",
+    "Layer 1"
+  ],
+  "feature": "existing_psd_layer_combine",
+  "prompt_id": "23044253-2bf8-4236-88f3-d2fe228a36f0",
+  "status": "success",
+  "produced_files": [
+    "existing_psd_layer_combine_00001_.psd"
+  ]
+}

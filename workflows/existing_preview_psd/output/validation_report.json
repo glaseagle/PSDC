@@ -1,0 +1,16 @@
+﻿{
+    "ok":  true,
+    "preview_images":  [
+                           {
+                               "filename":  "PSDC_Preview_temp_fretg_00001_.png",
+                               "subfolder":  "",
+                               "type":  "temp"
+                           }
+                       ],
+    "feature":  "existing_preview_psd",
+    "prompt_id":  "6c85bdad-c4d0-44a7-a34e-c189e45098ad",
+    "status":  "success",
+    "produced_files":  [
+                           "PSDC_Preview_temp_fretg_00001_.png"
+                       ]
+}

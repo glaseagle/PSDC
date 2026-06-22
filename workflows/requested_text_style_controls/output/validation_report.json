@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "text": "Styled PSDC Text",
+  "font_size": 72,
+  "tracking": 25,
+  "color_values": [
+    1.0,
+    0.2,
+    0.8,
+    1.0
+  ],
+  "feature": "requested_text_style_controls",
+  "prompt_id": "538629ce-3394-43e6-b972-67b593ba83ca",
+  "status": "success",
+  "produced_files": [
+    "requested_text_style_controls_00001_.psd"
+  ]
+}

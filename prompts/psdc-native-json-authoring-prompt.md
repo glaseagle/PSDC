@@ -30,8 +30,9 @@ Core rules:
 - Do not include pixel data, base64 images, or mask tensors in JSON.
 - Keep opacity values as Photoshop native integers from 0 to 255 unless you explicitly set "unit": "percent".
 - Prefer hiding layers with set_visibility false instead of deleting. Delete is not a supported operation.
-- For text replacement, target only single-style-run type layers or type layers inside embedded PSD/PSB smart objects.
-- For adjustment/effect edits, use semantic patch operations when available. If editing effects, prefer raw_descriptors copied from the snapshot because Photoshop effects are descriptor-backed.
+- For text replacement, target Photoshop type layers or type layers inside embedded PSD/PSB smart objects. PSDC preserves existing style/paragraph runs by default and can update multi-style run lengths.
+- For adjustment/effect edits, use semantic patch operations when available. If editing effects and exact Photoshop control is needed, use raw_descriptors copied from the snapshot because Photoshop effects are descriptor-backed.
+- For layer movement, prefer duplicate_layer, move_layer, reorder_layer, and translate_layer. Do not request scale, rotate, crop, or warp unless the user explicitly accepts that unsupported transform fields will fail with a structured report.
 - To create a new editable adjustment, effect, or type layer, use create_adjustment, create_effect_layer, or create_text. PSDC PSD Effector clones a Photoshop-native prototype and patches it.
 - If no original PSD is connected, PSDC starts from a blank native document. In that mode, set_adjustment, set_effect, and replace_text are interpreted as create-style operations on new blank layers.
 
@@ -80,6 +81,38 @@ set_clipping:
   "value": true
 }
 
+duplicate_layer:
+{
+  "op": "duplicate_layer",
+  "target": { "id": 123 },
+  "name": "Title Copy",
+  "dx": 32,
+  "dy": 32
+}
+
+move_layer into a group:
+{
+  "op": "move_layer",
+  "target": { "id": 123 },
+  "parent": { "id": 44 },
+  "index": 0
+}
+
+reorder_layer within the current parent:
+{
+  "op": "reorder_layer",
+  "target": { "id": 123 },
+  "index": 2
+}
+
+translate_layer:
+{
+  "op": "translate_layer",
+  "target": { "id": 123 },
+  "dx": 24,
+  "dy": -12
+}
+
 replace_text for a direct type layer:
 {
   "op": "replace_text",
@@ -87,7 +120,16 @@ replace_text for a direct type layer:
     "id": 99,
     "path": ["Title"]
   },
-  "value": "burger"
+  "value": "burger",
+  "style": {
+    "font_size": 96,
+    "color": "#ffffff",
+    "alignment": "center",
+    "tracking": 20,
+    "leading": 110,
+    "faux_bold": true,
+    "faux_italic": false
+  }
 }
 
 replace_text for a type layer inside an embedded smart object:
@@ -144,6 +186,21 @@ set_effect using raw descriptors copied from the snapshot:
         }
       }
     }
+  }
+}
+
+set_effect using semantic fields on an existing descriptor-backed effect:
+{
+  "op": "set_effect",
+  "target": { "id": 45 },
+  "effect": "drop_shadow",
+  "value": {
+    "enabled": true,
+    "opacity": 70,
+    "distance": 24,
+    "size": 32,
+    "angle": 120,
+    "color": "#ff3300"
   }
 }
 
@@ -213,7 +270,7 @@ create_effect_layer for a new editable Stroke effect layer:
   }
 }
 
-create_text for a new editable single-style-run type layer:
+create_text for a new editable type layer:
 {
   "op": "create_text",
   "name": "AI Title",
@@ -223,6 +280,15 @@ create_text for a new editable single-style-run type layer:
     "top": 80,
     "right": 900,
     "bottom": 220
+  },
+  "style": {
+    "font_size": 120,
+    "color": "#ffffff",
+    "alignment": "center",
+    "tracking": 0,
+    "leading": 128,
+    "faux_bold": false,
+    "faux_italic": false
   }
 }
 
@@ -263,7 +329,7 @@ Target brief conversion rules:
   - `parent`: the item's `parent`, when present
   - operation-specific values from `operation_args`
 - If `operation_args` contains `value`, copy it as `value` for replace_text, set_visibility, set_opacity, set_fill_opacity, set_blend_mode, set_clipping, set_adjustment, and set_effect.
-- If `operation_args` contains `adjustment`, `effect`, `type`, `name`, `bbox`, `blend_mode`, `opacity`, `fill_opacity`, or `visible`, copy those fields to the final operation when relevant.
+- If `operation_args` contains `adjustment`, `effect`, `type`, `name`, `bbox`, `blend_mode`, `opacity`, `fill_opacity`, `visible`, `style`, `parent`, `index`, `direction`, `offset`, `dx`, `dy`, `x`, or `y`, copy those fields to the final operation when relevant.
 - Do not copy `layer_summary`, `source_editable`, `confidence`, `notes`, `warnings`, or prose fields into the final Effector JSON.
 - If the target brief says confidence is low, still emit the best operation but keep the patch small. Do not add comments or explanations.
 

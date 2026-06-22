@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "has_preview": true,
+  "text": "Preview Refreshed",
+  "warnings": [
+    "Native metadata was patched and PSDC marked the document dirty so psd-tools refreshes merged preview image data during save when possible. Photoshop may still need to refresh cached text, smart object, adjustment, or effect previews on open."
+  ],
+  "feature": "requested_preview_refresh_metadata",
+  "prompt_id": "eb5968ff-7aad-427b-9cc5-fb708dfa3e44",
+  "status": "success",
+  "produced_files": [
+    "requested_preview_refresh_metadata_00001_.psd"
+  ]
+}

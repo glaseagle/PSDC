@@ -1514,12 +1514,10 @@ def serialize_text_editable(layer):
         "paragraph_run_count": len(paragraph_run_lengths),
         "fonts": fonts,
         "runs": runs,
-        "supported_operations": ["replace_text"] if single_style_run else [],
+        "supported_operations": ["replace_text"],
     }
     if not single_style_run:
-        result["unsupported_reasons"] = {
-            "replace_text": "Text layer has multiple style or paragraph runs.",
-        }
+        result["multi_run_replacement"] = "supported_by_redistributing_existing_style_and_paragraph_run_lengths"
     return result
 
 
@@ -1570,15 +1568,35 @@ def semantic_effects_projection(layer_info):
     effects = layer_info.get("effects")
     if not effect_descriptors and not effects:
         return None
+    if effect_descriptors:
+        return {
+            "supported_operations": ["set_effect"],
+            "raw_descriptors": effect_descriptors,
+            "parsed": effects or [],
+        }
     return {
-        "supported_operations": ["set_effect"],
-        "raw_descriptors": effect_descriptors or {},
+        "supported_operations": [],
+        "raw_descriptors": {},
         "parsed": effects or [],
+        "unsupported_reasons": {
+            "set_effect": "This layer reports layer effects, but psd-tools did not expose an editable native effect descriptor block. PSDC will preserve the existing effect and reject semantic edits instead of silently dropping it.",
+        },
     }
 
 
 def native_layer_supported_operations(layer, layer_info):
-    operations = ["rename_layer", "set_visibility", "set_opacity", "set_blend_mode", "set_clipping"]
+    operations = [
+        "rename_layer",
+        "set_visibility",
+        "set_opacity",
+        "set_blend_mode",
+        "set_clipping",
+        "duplicate_layer",
+        "move_layer",
+        "reorder_layer",
+        "translate_layer",
+        "transform_layer",
+    ]
     if hasattr(layer, "fill_opacity"):
         operations.append("set_fill_opacity")
     if str(getattr(layer, "kind", "")).lower() == "type":
@@ -1590,7 +1608,7 @@ def native_layer_supported_operations(layer, layer_info):
         operations.append("replace_text")
     if layer_info.get("adjustments"):
         operations.append("set_adjustment")
-    if layer_info.get("effect_descriptors") or layer_info.get("effects"):
+    if layer_info.get("effect_descriptors"):
         operations.append("set_effect")
     if layer.is_group():
         operations.append("create_group")
@@ -1627,7 +1645,7 @@ def native_layer_editable_projection(layer, layer_info):
         editable["group"] = {
             "expanded": True,
             "pass_through": True,
-            "supported_operations": ["rename_layer", "set_visibility", "move_layer", "create_group"],
+            "supported_operations": ["rename_layer", "set_visibility", "move_layer", "reorder_layer", "duplicate_layer", "create_group"],
         }
 
     return editable
@@ -2856,6 +2874,13 @@ SUPPORTED_NATIVE_PATCH_OPERATIONS = {
     "set_fill_opacity",
     "set_blend_mode",
     "set_clipping",
+    "duplicate_layer",
+    "move_layer",
+    "reorder_layer",
+    "translate_layer",
+    "transform_layer",
+    "crop_layer",
+    "warp_layer",
     "replace_text",
     "set_adjustment",
     "set_effect",
@@ -3033,7 +3058,7 @@ def native_layer_target_index(psd):
 
     for index_path, name_path, layer in iter_native_psd_layers_with_paths(psd):
         by_index_path[index_path] = layer
-        by_path[name_path] = layer
+        by_path.setdefault(name_path, []).append(layer)
         by_name.setdefault(getattr(layer, "name", "") or "", []).append(layer)
 
         layer_id = layer_id_from_tags(layer)
@@ -3082,14 +3107,20 @@ def resolve_native_layer_target(psd, target):
     if isinstance(path, list) and path:
         path_tuple = tuple(str(part) for part in path)
         if path_tuple in index["by_path"]:
-            return index["by_path"][path_tuple], None
+            matches = index["by_path"][path_tuple]
+            if len(matches) == 1:
+                return matches[0], None
+            return None, f"Layer path {list(path_tuple)!r} is ambiguous; use id or index_path."
         suffix_matches = [
             layer
-            for candidate_path, layer in index["by_path"].items()
+            for candidate_path, layers in index["by_path"].items()
+            for layer in layers
             if len(candidate_path) <= len(path_tuple) and path_tuple[-len(candidate_path) :] == candidate_path
         ]
         if len(suffix_matches) == 1:
             return suffix_matches[0], None
+        if len(suffix_matches) > 1:
+            return None, f"Layer path suffix {list(path_tuple)!r} is ambiguous; use id or index_path."
 
     name = target.get("name")
     if not name and isinstance(path, list) and path:
@@ -3128,20 +3159,85 @@ def text_layer_has_single_run(layer):
     return all(len(run_array) <= 1 for run_array in run_arrays)
 
 
-def set_text_layer_run_lengths(layer, run_length):
-    for run_array in text_layer_run_arrays(layer):
+def set_engine_run_length_entry(run_array, index, value):
+    value = int(value)
+    if hasattr(run_array[index], "value"):
+        run_array[index].value = value
+    else:
+        run_array[index] = value
+
+
+def engine_text_length(text):
+    # Photoshop EngineData run lengths include the terminating carriage return.
+    return len(str(text)) + 1
+
+
+def distribute_run_lengths(old_lengths, new_total):
+    old_lengths = [max(0, int(engine_data_value(value) or 0)) for value in old_lengths]
+    new_total = max(0, int(new_total))
+    if not old_lengths:
+        return []
+    if len(old_lengths) == 1:
+        return [new_total]
+
+    old_total = sum(old_lengths)
+    if old_total <= 0:
+        result = [0] * len(old_lengths)
+        result[-1] = new_total
+        return result
+
+    result = []
+    used = 0
+    for index, old_length in enumerate(old_lengths[:-1]):
+        length = int(round(new_total * (old_length / old_total)))
+        remaining_slots = len(old_lengths) - index - 1
+        length = max(0, min(length, max(0, new_total - used - remaining_slots)))
+        result.append(length)
+        used += length
+    result.append(max(0, new_total - used))
+    return result
+
+
+def explicit_run_lengths_from_operation(operation, key, fallback_key=None):
+    for current_key in (key, fallback_key):
+        if not current_key:
+            continue
+        value = operation.get(current_key)
+        if isinstance(value, list):
+            try:
+                return [int(item) for item in value]
+            except (TypeError, ValueError):
+                raise ValueError(f"{current_key} must contain integer run lengths.")
+    return None
+
+
+def set_text_layer_run_lengths(layer, new_text, operation=None):
+    operation = operation if isinstance(operation, dict) else {}
+    new_total = engine_text_length(new_text)
+    run_arrays = text_layer_run_arrays(layer)
+    explicit_by_index = [
+        explicit_run_lengths_from_operation(operation, "style_run_lengths", "run_lengths"),
+        explicit_run_lengths_from_operation(operation, "paragraph_run_lengths"),
+    ]
+
+    for array_index, run_array in enumerate(run_arrays):
         if len(run_array) == 0:
             continue
-        if len(run_array) != 1 or not hasattr(run_array[0], "value"):
-            raise ValueError("Only single-style-run text layers are supported for replace_text.")
-        run_array[0].value = int(run_length)
+        old_lengths = [engine_data_value(value) for value in run_array]
+        new_lengths = explicit_by_index[array_index] if array_index < len(explicit_by_index) else None
+        if new_lengths is None:
+            new_lengths = distribute_run_lengths(old_lengths, new_total)
+        if len(new_lengths) != len(run_array):
+            raise ValueError(f"Run length override must contain {len(run_array)} values.")
+        if sum(int(value) for value in new_lengths) != new_total:
+            raise ValueError(f"Run length override must sum to {new_total}.")
+        for index, length in enumerate(new_lengths):
+            set_engine_run_length_entry(run_array, index, length)
 
 
-def replace_type_layer_text(layer, new_text):
+def replace_type_layer_text(layer, new_text, operation=None):
     if str(getattr(layer, "kind", "")).lower() != "type":
         raise ValueError("Target is not a Photoshop type layer.")
-    if not text_layer_has_single_run(layer):
-        raise ValueError("Only single-style-run text layers are supported for replace_text.")
 
     old_text = str(layer.text)
     new_text = str(new_text)
@@ -3149,8 +3245,161 @@ def replace_type_layer_text(layer, new_text):
     text_data = getattr(layer, "_data", None).text_data
     text_data.get(b"Txt ").value = new_text + "\x00"
     layer._engine_data["EngineDict"]["Editor"]["Text"].value = new_text + "\r"
-    set_text_layer_run_lengths(layer, len(new_text) + 1)
+    set_text_layer_run_lengths(layer, new_text, operation)
     return old_text
+
+
+TEXT_STYLE_KEYS = (
+    "font_family",
+    "font",
+    "font_size",
+    "size",
+    "color",
+    "alignment",
+    "tracking",
+    "leading",
+    "faux_bold",
+    "bold",
+    "faux_italic",
+    "italic",
+)
+
+TEXT_ALIGNMENT_VALUES = {
+    "left": 0,
+    "start": 0,
+    "right": 1,
+    "end": 1,
+    "center": 2,
+    "centre": 2,
+    "justify": 3,
+    "justified": 3,
+}
+
+
+def text_style_from_operation(operation):
+    if not isinstance(operation, dict):
+        return {}
+    style = copy.deepcopy(operation.get("style")) if isinstance(operation.get("style"), dict) else {}
+    for key in TEXT_STYLE_KEYS:
+        if key in operation:
+            style[key] = operation[key]
+    return style
+
+
+def set_engine_mapping_value(mapping, key, value):
+    if not hasattr(mapping, "get"):
+        return False
+    try:
+        current = mapping.get(key)
+        if hasattr(current, "value"):
+            current.value = value
+        else:
+            mapping[key] = value
+        return True
+    except Exception:
+        return False
+
+
+def set_engine_list_entry(values, index, value):
+    if hasattr(values[index], "value"):
+        values[index].value = value
+    else:
+        values[index] = value
+
+
+def set_text_fill_color(style_data, value):
+    fill_color = style_data.get("FillColor") if hasattr(style_data, "get") else None
+    if not hasattr(fill_color, "get"):
+        return False
+    red, green, blue = parse_text_color(value, default=(255, 255, 255))
+    set_engine_mapping_value(fill_color, "Type", 1)
+    values = fill_color.get("Values")
+    try:
+        value_count = len(values)
+    except Exception:
+        value_count = 0
+    if value_count < 4:
+        return False
+    for index, channel in enumerate((1.0, red / 255.0, green / 255.0, blue / 255.0)):
+        set_engine_list_entry(values, index, float(channel))
+    return True
+
+
+def resolve_text_font_index(layer, font_name):
+    if not font_name:
+        return None
+    font_name = normalize_prototype_key(font_name)
+    try:
+        resource_dict = layer.resource_dict
+        font_set = resource_dict.get("FontSet", []) if resource_dict else []
+    except Exception:
+        return None
+    for index, font in enumerate(font_set):
+        font_json = psd_value_to_json(font)
+        candidates = [str(index)]
+        if isinstance(font_json, dict):
+            candidates.extend(
+                str(font_json.get(key) or "")
+                for key in ("Name", "PostScriptName", "FontFamilyName", "FamilyName", "FontStyleName", "StyleName")
+            )
+        if font_name in {normalize_prototype_key(candidate) for candidate in candidates if candidate}:
+            return index
+    return None
+
+
+def apply_text_style_operation(layer, operation):
+    style = text_style_from_operation(operation)
+    if not style:
+        return []
+    if str(getattr(layer, "kind", "")).lower() != "type":
+        return []
+
+    warnings = []
+    try:
+        engine_dict = layer.engine_dict
+    except Exception as error:
+        return [f"Could not read text EngineData: {error}"]
+
+    font_index = None
+    if style.get("font_family") or style.get("font"):
+        font_index = resolve_text_font_index(layer, style.get("font_family", style.get("font")))
+        if font_index is None:
+            warnings.append("Requested font was not found in this layer's existing FontSet; font family was preserved.")
+
+    for run in engine_dict.get("StyleRun", {}).get("RunArray", []):
+        style_data = run.get("StyleSheet", {}).get("StyleSheetData", {}) if hasattr(run, "get") else {}
+        if font_index is not None:
+            set_engine_mapping_value(style_data, "Font", font_index)
+        if style.get("font_size", style.get("size")) is not None:
+            set_engine_mapping_value(style_data, "FontSize", float(style.get("font_size", style.get("size"))))
+        if style.get("color") is not None:
+            if not set_text_fill_color(style_data, style.get("color")):
+                warnings.append("Could not update text fill color because this layer's EngineData color object was not editable.")
+        if style.get("tracking") is not None:
+            set_engine_mapping_value(style_data, "Tracking", int(round(float(style.get("tracking")))))
+        if style.get("leading") is not None:
+            set_engine_mapping_value(style_data, "AutoLeading", False)
+            set_engine_mapping_value(style_data, "Leading", float(style.get("leading")))
+        if style.get("faux_bold", style.get("bold")) is not None:
+            set_engine_mapping_value(style_data, "FauxBold", bool_from_json(style.get("faux_bold", style.get("bold")), False))
+        if style.get("faux_italic", style.get("italic")) is not None:
+            set_engine_mapping_value(style_data, "FauxItalic", bool_from_json(style.get("faux_italic", style.get("italic")), False))
+
+    alignment = style.get("alignment")
+    if alignment is not None:
+        alignment_value = TEXT_ALIGNMENT_VALUES.get(normalize_prototype_key(alignment))
+        if alignment_value is None:
+            warnings.append(f"Unsupported text alignment {alignment!r}; alignment was preserved.")
+        else:
+            for run in engine_dict.get("ParagraphRun", {}).get("RunArray", []):
+                properties = run.get("ParagraphSheet", {}).get("Properties", {}) if hasattr(run, "get") else {}
+                set_engine_mapping_value(properties, "Justification", alignment_value)
+
+    try:
+        layer._psd._mark_updated()
+    except Exception:
+        pass
+    return warnings
 
 
 def psd_to_bytes(psd):
@@ -3185,14 +3434,14 @@ def text_layers_in_psd(psd):
     return [layer for _index_path, layer in iter_native_psd_layers(psd) if str(getattr(layer, "kind", "")).lower() == "type"]
 
 
-def replace_text_in_embedded_smart_object(smart_layer, target, value, smart_object_chain):
+def replace_text_in_embedded_smart_object(smart_layer, target, value, smart_object_chain, operation=None):
     embedded_psd = open_embedded_smart_object_psd(smart_layer)
 
     if smart_object_chain:
         next_smart_layer, error = resolve_native_layer_target(embedded_psd, smart_object_chain[0])
         if next_smart_layer is None:
             raise ValueError(error or "Could not resolve nested smart object target.")
-        old_text = replace_text_in_embedded_smart_object(next_smart_layer, target, value, smart_object_chain[1:])
+        old_text = replace_text_in_embedded_smart_object(next_smart_layer, target, value, smart_object_chain[1:], operation)
     else:
         child_target = copy.deepcopy(target) if isinstance(target, dict) else {}
         child_target.pop("smart_object_chain", None)
@@ -3203,7 +3452,8 @@ def replace_text_in_embedded_smart_object(smart_layer, target, value, smart_obje
                 text_layer = candidates[0]
             else:
                 raise ValueError(error or "Could not resolve embedded text layer.")
-        old_text = replace_type_layer_text(text_layer, value)
+        old_text = replace_type_layer_text(text_layer, value, operation)
+        apply_text_style_operation(text_layer, operation)
 
     embedded_psd._mark_updated()
     write_embedded_smart_object_psd(smart_layer, embedded_psd)
@@ -3219,20 +3469,24 @@ def replace_text_operation(psd, operation):
         smart_layer, error = resolve_native_layer_target(psd, smart_object_chain[0])
         if smart_layer is None:
             raise ValueError(error or "Could not resolve smart object chain target.")
-        old_text = replace_text_in_embedded_smart_object(smart_layer, target, value, smart_object_chain[1:])
+        old_text = replace_text_in_embedded_smart_object(smart_layer, target, value, smart_object_chain[1:], operation)
+        style_warnings = []
     else:
         layer, error = resolve_native_layer_target(psd, target)
         if layer is None:
             raise ValueError(error or "Could not resolve target layer.")
         if str(getattr(layer, "kind", "")).lower() == "type":
-            old_text = replace_type_layer_text(layer, value)
+            old_text = replace_type_layer_text(layer, value, operation)
+            style_warnings = apply_text_style_operation(layer, operation)
         elif str(getattr(layer, "kind", "")).lower() == "smartobject":
-            old_text = replace_text_in_embedded_smart_object(layer, target, value, [])
+            old_text = replace_text_in_embedded_smart_object(layer, target, value, [], operation)
+            style_warnings = []
         else:
             raise ValueError("replace_text target must be a type layer or embedded PSD/PSB smart object.")
 
     psd._mark_updated()
-    return f"Changed text from {old_text!r} to {str(value)!r}. Cached Photoshop previews may be stale until Photoshop refreshes the document."
+    suffix = f" Warnings: {'; '.join(style_warnings)}" if style_warnings else ""
+    return f"Changed text from {old_text!r} to {str(value)!r}. Cached Photoshop previews may be stale until Photoshop refreshes the document.{suffix}"
 
 
 def adjustment_patch_tag(layer, operation):
@@ -3275,16 +3529,27 @@ def set_effect_operation(layer, operation):
 
     effect_descriptors = serialize_layer_tags(layer).get("effect_descriptors", {})
     if not effect_descriptors:
+        if native_layer_effect_keys_from_effects(layer):
+            raise ValueError(
+                "Target layer has effects, but no editable native effect descriptor block was exposed. "
+                "Existing effects were preserved; use raw_descriptors from an encoder snapshot or create a new effect layer."
+            )
         raise ValueError("Target layer has no editable effect descriptor block.")
 
     if "raw_descriptors" in value and isinstance(value["raw_descriptors"], dict):
-        changed = patch_native_layer_tags(layer, {"effect_descriptors": value["raw_descriptors"]})
+        patched_descriptors = value["raw_descriptors"]
     else:
-        changed = patch_native_layer_tags(layer, {"effect_descriptors": value})
+        effect = operation.get("effect", operation.get("type"))
+        if effect:
+            patched_descriptors = apply_semantic_effect_json(effect_descriptors, effect, value)
+        else:
+            patched_descriptors = value
+
+    changed = patch_native_layer_tags(layer, {"effect_descriptors": patched_descriptors})
 
     if not changed:
         raise ValueError(
-            "No effect descriptor values were changed. Semantic effect patching is not implemented yet; pass raw_descriptors copied from the snapshot."
+            "No effect descriptor values were changed. Pass changed semantic fields or raw_descriptors copied from the snapshot."
         )
     return "Updated native effect descriptor values."
 
@@ -3629,9 +3894,11 @@ def create_text_operation(psd, operation):
     layer = clone_native_prototype_layer(layer_info, load_native_prototype_lookup(), allocate_native_layer_id(psd))
     if layer is None:
         raise ValueError("No native text prototype is available.")
+    style_warnings = apply_text_style_operation(layer, operation)
     insert_created_layer(parent, layer, operation)
     psd._mark_updated()
-    return f"Created native text layer {layer_info['name']!r}."
+    suffix = f" Warnings: {'; '.join(style_warnings)}" if style_warnings else ""
+    return f"Created native text layer {layer_info['name']!r}.{suffix}"
 
 
 def create_group_operation(psd, operation):
@@ -3652,6 +3919,162 @@ def create_group_operation(psd, operation):
     return f"Created group {name!r}."
 
 
+def iter_native_layer_subtree(layer):
+    yield layer
+    if hasattr(layer, "is_group") and layer.is_group():
+        for child in layer:
+            yield from iter_native_layer_subtree(child)
+
+
+def assign_new_layer_ids_recursive(layer, psd):
+    for current in iter_native_layer_subtree(layer):
+        assign_native_layer_id(current, allocate_native_layer_id(psd))
+
+
+def layer_parent(layer):
+    parent = getattr(layer, "parent", None)
+    if parent is None:
+        raise ValueError("Target layer has no parent.")
+    return parent
+
+
+def resolve_parent_for_operation(psd, operation, default_parent):
+    parent_target = operation.get("parent", operation.get("group"))
+    if not isinstance(parent_target, dict) or not parent_target:
+        return default_parent
+    parent_layer, error = resolve_native_layer_target(psd, parent_target)
+    if parent_layer is None:
+        raise ValueError(error or "Could not resolve parent group.")
+    if not parent_layer.is_group():
+        raise ValueError("Parent target must resolve to a group layer.")
+    return parent_layer
+
+
+def clamp_insert_index(parent, index, append_default=True):
+    if index is None:
+        return len(parent) if append_default else 0
+    return max(0, min(int(index), len(parent)))
+
+
+def operation_index(operation):
+    for key in ("index", "position_index", "absolute_index"):
+        if operation.get(key) is not None:
+            return int(operation.get(key))
+    position = operation.get("position")
+    if isinstance(position, dict) and position.get("index") is not None:
+        return int(position.get("index"))
+    return None
+
+
+def translate_native_layer(layer, dx=0, dy=0, absolute_x=None, absolute_y=None):
+    if layer.is_group():
+        for child in layer:
+            translate_native_layer(child, dx=dx, dy=dy, absolute_x=None, absolute_y=None)
+        return
+
+    left = int(getattr(layer, "left", 0))
+    top = int(getattr(layer, "top", 0))
+    if absolute_x is not None:
+        left = int(absolute_x)
+    else:
+        left += int(dx)
+    if absolute_y is not None:
+        top = int(absolute_y)
+    else:
+        top += int(dy)
+    layer.left = left
+    layer.top = top
+
+
+def duplicate_layer_operation(psd, operation):
+    layer, error = resolve_native_layer_target(psd, operation.get("target", {}))
+    if layer is None:
+        raise ValueError(error or "Could not resolve target layer.")
+
+    parent = resolve_parent_for_operation(psd, operation, layer_parent(layer))
+    duplicate = copy.deepcopy(layer)
+    duplicate.name = str(operation.get("name") or f"{getattr(layer, 'name', 'Layer')} copy")
+    assign_new_layer_ids_recursive(duplicate, psd)
+
+    dx = clamp_int(operation.get("dx"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    dy = clamp_int(operation.get("dy"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    if dx or dy or operation.get("x") is not None or operation.get("y") is not None:
+        translate_native_layer(
+            duplicate,
+            dx=dx,
+            dy=dy,
+            absolute_x=operation.get("x"),
+            absolute_y=operation.get("y"),
+        )
+
+    index = operation_index(operation)
+    if index is None and parent is layer_parent(layer):
+        index = parent.index(layer) + 1
+    parent.insert(clamp_insert_index(parent, index), duplicate)
+    psd._mark_updated()
+    return f"Duplicated layer {getattr(layer, 'name', '')!r} as {duplicate.name!r}."
+
+
+def move_layer_operation(psd, operation):
+    layer, error = resolve_native_layer_target(psd, operation.get("target", {}))
+    if layer is None:
+        raise ValueError(error or "Could not resolve target layer.")
+
+    current_parent = layer_parent(layer)
+    parent = resolve_parent_for_operation(psd, operation, current_parent)
+    direction = normalize_prototype_key(operation.get("direction", ""))
+    offset = clamp_int(operation.get("offset"), 1, -MAX_RESOLUTION, MAX_RESOLUTION)
+    index = operation_index(operation)
+
+    if direction in ("up", "above"):
+        index = current_parent.index(layer) + abs(offset)
+    elif direction in ("down", "below"):
+        index = current_parent.index(layer) - abs(offset)
+    elif direction == "top":
+        index = len(parent)
+    elif direction == "bottom":
+        index = 0
+
+    if index is None and parent is not current_parent:
+        index = len(parent)
+    elif index is None:
+        raise ValueError("move_layer requires direction, index, or parent/group.")
+
+    if parent is current_parent:
+        current_parent.remove(layer)
+    else:
+        current_parent.remove(layer)
+
+    parent.insert(clamp_insert_index(parent, index), layer)
+    psd._mark_updated()
+    return f"Moved layer {getattr(layer, 'name', '')!r} to index {parent.index(layer)}."
+
+
+def translate_layer_operation(psd, operation):
+    layer, error = resolve_native_layer_target(psd, operation.get("target", {}))
+    if layer is None:
+        raise ValueError(error or "Could not resolve target layer.")
+    dx = clamp_int(operation.get("dx"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    dy = clamp_int(operation.get("dy"), 0, -MAX_RESOLUTION, MAX_RESOLUTION)
+    translate_native_layer(layer, dx=dx, dy=dy, absolute_x=operation.get("x"), absolute_y=operation.get("y"))
+    psd._mark_updated()
+    return f"Translated layer {getattr(layer, 'name', '')!r} to bbox {getattr(layer, 'bbox', None)}."
+
+
+def transform_layer_operation(psd, operation):
+    unsupported = []
+    for key in ("scale", "scale_x", "scale_y", "rotate", "rotation", "angle", "crop", "warp", "perspective"):
+        value = operation.get(key)
+        if value not in (None, 0, 0.0, 1, 1.0, False, {}, []):
+            unsupported.append(key)
+    if unsupported:
+        raise ValueError(
+            "Native scale/rotate/crop/warp transforms are not implemented because psd-tools does not expose a safe Photoshop transform descriptor writer for arbitrary layers. "
+            f"Unsupported fields: {', '.join(unsupported)}. The source PSD was preserved."
+        )
+    return translate_layer_operation(psd, operation)
+
+
 def apply_native_patch_operation(psd, operation):
     op_name = operation.get("op")
     if op_name not in SUPPORTED_NATIVE_PATCH_OPERATIONS:
@@ -3665,6 +4088,18 @@ def apply_native_patch_operation(psd, operation):
         return create_effect_layer_operation(psd, operation)
     if op_name == "create_text":
         return create_text_operation(psd, operation)
+    if op_name == "duplicate_layer":
+        return duplicate_layer_operation(psd, operation)
+    if op_name in ("move_layer", "reorder_layer"):
+        return move_layer_operation(psd, operation)
+    if op_name == "translate_layer":
+        return translate_layer_operation(psd, operation)
+    if op_name == "transform_layer":
+        return transform_layer_operation(psd, operation)
+    if op_name in ("crop_layer", "warp_layer"):
+        raise ValueError(
+            f"{op_name} is recognized but not implemented as a native edit. PSDC preserves the source layer instead of rasterizing or corrupting Photoshop-only transform data."
+        )
     if op_name == "replace_text":
         return replace_text_operation(psd, operation)
 
@@ -3764,6 +4199,16 @@ def validate_native_patch(source_path, patch_json, snapshot_json=None):
             layer, error = resolve_native_layer_target(psd, operation.get("target", {}))
             if layer is None:
                 raise ValueError(error or "Could not resolve target layer.")
+            if op_name in ("crop_layer", "warp_layer"):
+                raise ValueError(f"{op_name} is recognized but not implemented as a native edit.")
+            if op_name == "transform_layer":
+                unsupported = []
+                for key in ("scale", "scale_x", "scale_y", "rotate", "rotation", "angle", "crop", "warp", "perspective"):
+                    value = operation.get(key)
+                    if value not in (None, 0, 0.0, 1, 1.0, False, {}, []):
+                        unsupported.append(key)
+                if unsupported:
+                    raise ValueError(f"Native transform validation failed for unsupported fields: {', '.join(unsupported)}.")
             if op_name == "set_adjustment" and adjustment_patch_tag(layer, operation) is None:
                 raise ValueError("Target layer does not expose a matching adjustment tag.")
             if op_name == "set_effect" and not serialize_layer_tags(layer).get("effect_descriptors"):
@@ -3804,7 +4249,9 @@ def apply_native_patch_json_to_native_psd(source_path, patch_json, output_path):
             report["failed"].append({"index": index, "op": op_name, "target": operation.get("target", operation.get("parent")), "message": str(error)})
 
     if report["applied"]:
-        report["warnings"].append("Native metadata was patched. Photoshop may need to refresh cached previews for text, smart objects, adjustments, or effects.")
+        report["warnings"].append(
+            "Native metadata was patched and PSDC marked the document dirty so psd-tools refreshes merged preview image data during save when possible. Photoshop may still need to refresh cached text, smart object, adjustment, or effect previews on open."
+        )
 
     save_psd_photoshop_safe(psd, output_path)
     report["output_path"] = output_path

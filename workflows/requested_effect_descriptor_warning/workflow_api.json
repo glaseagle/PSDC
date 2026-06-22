@@ -1,0 +1,19 @@
+{
+  "1": {
+    "class_type": "PSDC Load PSD",
+    "inputs": {
+      "psd_file": "psdc_validation_text_source.psd"
+    }
+  },
+  "2": {
+    "class_type": "PSDC PSD Effector",
+    "inputs": {
+      "edit_json": "{\"schema\": \"psdc.native_patch.v1\", \"operations\": [{\"op\": \"set_effect\", \"target\": {\"id\": 2}, \"effect\": \"stroke\", \"value\": {\"size\": 12, \"color\": \"#ffffff\"}}]}",
+      "filename_prefix": "PSDC_Validation/requested_effect_descriptor_warning/requested_effect_descriptor_warning",
+      "psd": [
+        "1",
+        0
+      ]
+    }
+  }
+}

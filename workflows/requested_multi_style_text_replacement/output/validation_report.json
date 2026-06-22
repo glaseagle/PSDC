@@ -1,0 +1,20 @@
+{
+  "ok": true,
+  "text": "Changed Multi Style Text",
+  "run_lengths": [
+    [
+      10,
+      15
+    ],
+    [
+      10,
+      15
+    ]
+  ],
+  "feature": "requested_multi_style_text_replacement",
+  "prompt_id": "1f4e9ab6-c135-427f-8f67-374eb28f3f66",
+  "status": "success",
+  "produced_files": [
+    "requested_multi_style_text_replacement_00001_.psd"
+  ]
+}

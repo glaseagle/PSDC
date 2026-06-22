@@ -1,0 +1,9 @@
+{
+  "1": {
+    "class_type": "PSDC PSD Effector",
+    "inputs": {
+      "edit_json": "{\"schema\": \"psdc.native_patch.v1\", \"document\": {\"width\": 900, \"height\": 520}, \"operations\": [{\"op\": \"create_text\", \"name\": \"Styled Validation Text\", \"value\": \"Styled PSDC Text\", \"bbox\": {\"left\": 80, \"top\": 120, \"right\": 820, \"bottom\": 240}, \"style\": {\"font_size\": 72, \"color\": \"#33ccff\", \"alignment\": \"center\", \"tracking\": 25, \"leading\": 86, \"faux_bold\": true, \"faux_italic\": true}}]}",
+      "filename_prefix": "PSDC_Validation/requested_text_style_controls/requested_text_style_controls"
+    }
+  }
+}

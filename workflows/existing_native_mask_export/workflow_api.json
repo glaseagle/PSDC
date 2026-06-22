@@ -1,0 +1,63 @@
+{
+  "1": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 320,
+      "height": 240,
+      "batch_size": 1,
+      "color": 0
+    }
+  },
+  "2": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 80,
+      "height": 60,
+      "batch_size": 1,
+      "color": 16744448
+    }
+  },
+  "3": {
+    "class_type": "SolidMask",
+    "inputs": {
+      "value": 1.0,
+      "width": 80,
+      "height": 60
+    }
+  },
+  "4": {
+    "class_type": "PSDC Apply Alpha Channel",
+    "inputs": {
+      "image": [
+        "2",
+        0
+      ],
+      "mask": [
+        "3",
+        0
+      ],
+      "invert_mask": false,
+      "x": 30,
+      "y": 40,
+      "offset_x": 0,
+      "offset_y": 0,
+      "destination": [
+        "1",
+        0
+      ]
+    }
+  },
+  "5": {
+    "class_type": "PSDC Save PSD",
+    "inputs": {
+      "images": [
+        "4",
+        0
+      ],
+      "filename_prefix": "PSDC_Validation/existing_native_mask_export/existing_native_mask_export",
+      "file_mode": "single_file",
+      "alpha_name": "_mask_",
+      "alpha_name_mode": "suffix"
+    }
+  }
+}

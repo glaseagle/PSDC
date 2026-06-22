@@ -43,11 +43,11 @@ PSDC is now centered on native PSD editing, not only PSD export. The current sup
 
 | Area | Supported now | Notes |
 | --- | --- | --- |
-| Layer targeting | Existing layers can be targeted by Photoshop layer ID, index path, full layer path, or unique name. | The encoder emits these fields so LLM patches can point at the right layer. ID is preferred. |
-| Text | Create editable single-style text layers. Replace text in direct Photoshop type layers and in embedded PSD/PSB smart-object text layers. | Text replacement supports single-style-run type layers. Multi-style text is detected and rejected instead of being corrupted. |
+| Layer targeting | Existing layers can be targeted by Photoshop layer ID, index path, full layer path, or unique name. Layers can be duplicated, moved into groups, reordered, and translated. | The encoder emits these fields so LLM patches can point at the right layer. ID is preferred. Duplicate names/paths now produce ambiguity diagnostics instead of silently picking the wrong layer. |
+| Text | Create editable text layers with optional style controls. Replace text in direct Photoshop type layers and in embedded PSD/PSB smart-object text layers. | Single-style and multi-style/multi-paragraph run lengths are updated safely. Existing style runs are preserved by default; optional style fields can set size, color, alignment, tracking, leading, faux bold, and faux italic. |
 | Adjustment/fill layers | Create native editable adjustment/fill layers from PSDC's prototype library. Edit existing adjustment layers when their native descriptor/tag is exposed. | Curves and common raw adjustment descriptors are the strongest path. For exact Photoshop controls, use `raw` data copied from the encoder JSON. |
 | Blend/compositing metadata | Set layer name, visibility, opacity, fill opacity, blend mode, and clipping. | Blend modes are written back as native Photoshop blend modes. |
-| Effects | Create native editable effect-bearing pixel layers for Drop Shadow, Inner Shadow, Outer Glow, Inner Glow, Stroke, and Bevel/Emboss. Edit existing effects when raw effect descriptors are exposed. | New effects support common semantic fields such as opacity, distance, size, color, angle, spread, choke, noise, and depth. Existing effect edits are safest with `raw_descriptors` copied from the encoder JSON; arbitrary semantic Photoshop effect editing is not fully generalized yet. |
+| Effects | Create native editable effect-bearing pixel layers for Drop Shadow, Inner Shadow, Outer Glow, Inner Glow, Stroke, and Bevel/Emboss. Edit existing effects when editable descriptors are exposed. | New and existing descriptor-backed effects support common semantic fields such as opacity, distance, size, color, angle, spread, choke, noise, and depth. `raw_descriptors` remains the exact-control escape hatch. |
 | Groups | Create groups and insert created native layers into the document root or a targeted group. | Existing group structure is preserved when editing uploaded PSDs. |
 | Masks and raster layers | Convert ComfyUI images and masks into PSD pixel layers with native pixel masks. Batch images/masks become multiple layers. | Mask export remains fully supported, but it is now one capability inside the broader PSD editor. |
 | Uploaded PSD preservation | Loaded PSDs keep native Photoshop context while PSDC adds new raster, mask, composite, effect, adjustment, text, or group layers. | Save paths preserve original groups, adjustment layers, effects, fill layers, masks, smart objects, and editable text wherever PSDC does not explicitly patch them. |
@@ -225,6 +225,13 @@ Supported patch operations:
 - `set_fill_opacity`
 - `set_blend_mode`
 - `set_clipping`
+- `duplicate_layer`
+- `move_layer`
+- `reorder_layer`
+- `translate_layer`
+- `transform_layer`
+- `crop_layer`
+- `warp_layer`
 - `replace_text`
 - `set_adjustment`
 - `set_effect`
@@ -233,7 +240,9 @@ Supported patch operations:
 - `create_effect_layer`
 - `create_text`
 
-Native text replacement supports single-style-run Photoshop type layers and text inside embedded PSD/PSB smart objects. It updates the text descriptor, EngineData text, and EngineData run lengths. Photoshop may still need to refresh stale cached previews after opening the patched file.
+Native duplicate/move/reorder/translate operations preserve the native Photoshop layer object and its masks, effects, smart object metadata, and descriptors where `psd-tools` can safely move the layer record. `transform_layer` currently supports translate-style fields only. Scale, rotate, crop, and warp are recognized but rejected with structured report failures instead of rasterizing or corrupting Photoshop-only transform data.
+
+Native text replacement supports single-style and multi-style Photoshop type layers, plus text inside embedded PSD/PSB smart objects. It updates the text descriptor, EngineData text, and EngineData style/paragraph run lengths. Optional style fields on `replace_text` and `create_text` include `font_size`, `color`, `alignment`, `tracking`, `leading`, `faux_bold`, and `faux_italic`. Font family changes are applied only when the requested font already exists in that layer's Photoshop FontSet.
 
 Native layer creation uses PSDC's bundled Photoshop prototype library. `create_adjustment` can instantiate editable adjustment/fill layers such as Curves, Levels, Hue/Saturation, Solid Color Fill, Gradient Map, Vibrance, Exposure, and the other bundled prototypes. `create_effect_layer` can instantiate editable effect-bearing pixel layers for Drop Shadow, Inner Shadow, Outer Glow, Inner Glow, Stroke, and Bevel/Emboss. `create_text` can instantiate an editable single-style-run type layer. Common semantic fields are supported, and `raw` / `raw_descriptors` can be used for descriptor-level control.
 
@@ -465,10 +474,29 @@ examples/psdc_templatetest_modify_existing_text_comfy_generated.psd
 
 The first contains an editable Solid Color Fill layer and an editable Curves adjustment layer. The second contains an editable type layer over a Solid Color Fill background. The TemplateTest examples show adding a new editable text layer to an existing PSD and replacing the embedded title text inside `Title Treatment 100.psb`. The patch/workflow JSON used to generate each PSD is included next to the PSD.
 
+Per-feature validation workflows are included under `workflows/`. Each validation folder contains a Comfy API workflow JSON plus an `output/` folder with the produced PSD/PNG and `validation_report.json`. `workflows/psdc_validation_summary.json` records the latest run across:
+
+- requested native layer operations
+- requested semantic effect edits
+- requested effect descriptor warning behavior
+- requested multi-style text replacement
+- requested text style controls
+- requested preview refresh metadata
+- requested duplicate-name targeting
+- existing native mask export
+- existing image composite PSD
+- existing image-to-PSD
+- existing PSD layer combine
+- existing PSD encoder/decoder
+- existing load/save preservation
+- existing PSD preview
+- existing alpha extraction
+
 ## Notes and Limits
 
 - Layer masks are pixel masks, not vector masks.
 - `PSDC Image Composite PSD` creates a `Background` layer from the first destination image when no `PSD` input is connected, then adds `Layer 1`, `Layer 2`, and so on for each composite.
+- `transform_layer`, `crop_layer`, and `warp_layer` are recognized by the Effector schema, but native scale/rotate/crop/warp editing is not implemented unless it can be represented as a safe translate-style record update. Unsupported transform fields fail explicitly in the Effector report.
 - `alpha_name` and `alpha_name_mode` remain in the node so older workflows still load, but this fork no longer emits standalone mask layers.
 - If an input image has no alpha channel, the PSD layer is written without a mask.
 - When a `PSD` stack has multiple batch entries, `single_file` saves batch 0. Use `multi_file` to save one PSD per batch entry.

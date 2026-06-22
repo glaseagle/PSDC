@@ -41,13 +41,15 @@ Core behavior:
 - If no matching editable layer exists, put the requested creation in "new_layers" instead of forcing a bad target.
 - If editing an effect and the snapshot exposes "editable.effects.raw_descriptors" or "effect_descriptors", include the relevant raw descriptor excerpt in "source_editable".
 - If editing an adjustment and the snapshot exposes "editable.adjustment" or "adjustments", include the relevant adjustment excerpt in "source_editable".
-- If replacing text, include the current text contents and whether "replace_text" is supported.
+- If replacing or styling text, include the current text contents, run counts, font set, and whether "replace_text" is supported.
+- If moving or duplicating layers, include the exact parent/group target and desired index or dx/dy movement when known.
+- If names or paths are duplicated, warn that the second Gemini node must use id or index_path.
 
 Target object format:
 {
   "role": "short description of what this target is for",
   "requested_change": "plain English change for this exact target",
-  "recommended_operation": "rename_layer | set_visibility | set_opacity | set_fill_opacity | set_blend_mode | set_clipping | replace_text | set_adjustment | set_effect",
+  "recommended_operation": "rename_layer | set_visibility | set_opacity | set_fill_opacity | set_blend_mode | set_clipping | duplicate_layer | move_layer | reorder_layer | translate_layer | transform_layer | replace_text | set_adjustment | set_effect",
   "target": {
     "id": 123,
     "index_path": [0, 2],

@@ -1,0 +1,17 @@
+{
+  "1": {
+    "class_type": "PSDC Load PSD",
+    "inputs": {
+      "psd_file": "psdc_validation_text_source.psd"
+    }
+  },
+  "2": {
+    "class_type": "PSDC Preview PSD",
+    "inputs": {
+      "psd": [
+        "1",
+        0
+      ]
+    }
+  }
+}

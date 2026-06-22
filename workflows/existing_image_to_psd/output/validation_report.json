@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "layer_count": 1,
+  "has_mask": true,
+  "feature": "existing_image_to_psd",
+  "prompt_id": "1b053bdd-b913-4e00-9f49-953b8fcd9a08",
+  "status": "success",
+  "produced_files": [
+    "existing_image_to_psd_00001_.psd"
+  ]
+}
